@@ -302,6 +302,16 @@
       <h3 id="manage-heading">Cadastrar no mural</h3>
       <p class="muted">Cadastre pessoas, casos, crimes, sentenças, anulações, pontos e linhas de investigação. Adicione links diretos; registros e conexões aparecem no mural e as fontes aparecem publicamente. Marque hipóteses como hipótese e não apresente suspeitas como fatos.</p>
 
+      <form id="investigate-form" class="form-stack">
+        <h4>Investigar automaticamente por link</h4>
+        <p class="muted">Cole uma URL pública. A IA vai analisar o texto acessível, extrair pessoas, órgãos, casos, crimes alegados, prisões, decisões, anulações, datas e conexões, e salvar os registros encontrados no mural. A análise depende de OPENAI_API_KEY configurada na Vercel.</p>
+        <label for="investigate-url">Link da fonte</label>
+        <input id="investigate-url" name="url" type="url" placeholder="https://..." maxlength="2048" required>
+        <button class="button" type="submit">Analisar fonte e montar conexões</button>
+        <p id="investigate-status" class="status" role="status" aria-live="polite"></p>
+        <div id="investigate-result" aria-live="polite"></div>
+      </form>
+
       <form id="entity-form" class="form-stack">
         <h4>Nova pessoa, ponto ou entidade</h4>
         <label for="entity-name">Nome / título</label>
