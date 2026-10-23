@@ -15,7 +15,7 @@ test("tokensMatch aceita igualdade e rejeita tamanhos diferentes", () => {
   assert.equal(tokensMatch("abc", "abcd"), false);
   assert.equal(tokensMatch(undefined, "abc"), false);
   assert.equal(tokensMatch("abc", undefined), false);
-  assert.equal(tokensMatch("", ""), true);
+  assert.equal(tokensMatch("", ""), false);
 });
 
 test("normaliza somente URLs HTTP/HTTPS", () => {
