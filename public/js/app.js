@@ -33,6 +33,23 @@
     refreshGraph: $("#refresh-graph"),
 
     healthStatus: $("#health-status"),
+    sourcesList: $("#sources-list"),
+    investigateForm: $("#investigate-form"),
+    investigateUrl: $("#investigate-url"),
+    investigateStatus: $("#investigate-status"),
+    investigateResult: $("#investigate-result"),
+    entityForm: $("#entity-form"),
+    entityFormStatus: $("#entity-form-status"),
+    relationshipForm: $("#relationship-form"),
+    relationshipFormStatus: $("#relationship-form-status"),
+    entityName: $("#entity-name"),
+    entityType: $("#entity-type"),
+    entityDescription: $("#entity-description"),
+    entitySourceUrl: $("#entity-source-url"),
+    entitySourceDate: $("#entity-source-date"),
+    entityStatus: $("#entity-status"),
+    relationshipSource: $("#relationship-source"),
+    relationshipTarget: $("#relationship-target"),
     cookieNotice: $("#cookie-notice"),
     cookieDismiss: $("#cookie-dismiss")
   };
@@ -848,6 +865,126 @@
   }
 
   // ------------------------------------------------------------
+  // Fontes externas e formulários administrativos
+  // ------------------------------------------------------------
+
+  async function loadSources() {
+    if (!elements.sourcesList) return;
+    elements.sourcesList.replaceChildren(createMessage("Carregando fontes cadastradas…"));
+    try {
+      const data = await apiFetch("/sources");
+      const sources = Array.isArray(data.sources) ? data.sources : [];
+      elements.sourcesList.replaceChildren();
+      if (!sources.length) {
+        elements.sourcesList.appendChild(createMessage("Nenhuma fonte cadastrada ainda."));
+        return;
+      }
+      for (const source of sources) {
+        const item = createElement("article", "source-item");
+        item.appendChild(createElement("h3", "", source.title || source.url));
+        if (source.description) item.appendChild(createElement("p", "muted", source.description));
+        const meta = createElement("p", "muted", `Referenciada em ${source.references} registro(s)`);
+        item.appendChild(meta);
+        appendSourceLink(item, source.url, "Abrir fonte original");
+        elements.sourcesList.appendChild(item);
+      }
+    } catch (error) {
+      elements.sourcesList.replaceChildren(createMessage(error.message || "Não foi possível carregar as fontes.", "error-message"));
+    }
+  }
+
+  function formValues(form) {
+    return Object.fromEntries(new FormData(form).entries());
+  }
+
+  async function handleInvestigate(event) {
+    event.preventDefault();
+    const url = elements.investigateUrl?.value.trim();
+    if (!url) return;
+    const button = elements.investigateForm?.querySelector('button[type="submit"]');
+    setButtonLoading(button, true, "Analisando fonte…");
+    setStatus(elements.investigateStatus, "Acessando a fonte e analisando o conteúdo. Isso pode levar alguns segundos.");
+    elements.investigateResult?.replaceChildren();
+    try {
+      const data = await apiFetch("/admin/investigate-link", { method: "POST", body: { url } });
+      setStatus(elements.investigateStatus, `Análise concluída. ${data.entities_added || 0} entidades e ${data.relationships_added || 0} conexões novas.`);
+      if (elements.investigateResult) {
+        const summary = createElement("p", "", data.summary || "A análise terminou sem resumo.");
+        elements.investigateResult.appendChild(summary);
+        if (data.source?.url) appendSourceLink(elements.investigateResult, data.source.url, "Abrir fonte analisada");
+        const details = createElement("p", "muted", `Fonte: ${data.source?.title || data.source?.url || url}`);
+        elements.investigateResult.appendChild(details);
+        if (Array.isArray(data.timeline) && data.timeline.length) {
+          elements.investigateResult.appendChild(createElement("h4", "", "Linha do tempo extraída"));
+          const list = createElement("ul");
+          for (const event of data.timeline) {
+            list.appendChild(createElement("li", "", [event.date, event.event, event.status].filter(Boolean).join(" — ")));
+          }
+          elements.investigateResult.appendChild(list);
+        }
+      }
+      await Promise.all([loadGraph(), loadSources()]);
+      await loadEntityOptions();
+    } catch (error) {
+      setStatus(elements.investigateStatus, error.message || "Não foi possível analisar a fonte.", true);
+    } finally {
+      setButtonLoading(button, false);
+    }
+  }
+
+  async function handleCreateEntity(event) {
+    event.preventDefault();
+    const button = elements.entityForm?.querySelector('button[type="submit"]');
+    setButtonLoading(button, true, "Salvando…");
+    setStatus(elements.entityFormStatus, "");
+    try {
+      await apiFetch("/entities", { method: "POST", body: formValues(elements.entityForm) });
+      elements.entityForm.reset();
+      setStatus(elements.entityFormStatus, "Entidade adicionada ao mural.");
+      await Promise.all([loadGraph(), loadSources(), loadEntityOptions()]);
+    } catch (error) {
+      setStatus(elements.entityFormStatus, error.message || "Não foi possível salvar a entidade.", true);
+    } finally {
+      setButtonLoading(button, false);
+    }
+  }
+
+  async function loadEntityOptions() {
+    const selects = [elements.relationshipSource, elements.relationshipTarget].filter(Boolean);
+    if (!selects.length) return;
+    try {
+      const data = await apiFetch("/entities");
+      const entities = Array.isArray(data.entities) ? data.entities : [];
+      for (const select of selects) {
+        const previous = select.value;
+        select.replaceChildren();
+        select.appendChild(new Option("Selecione uma entidade", ""));
+        for (const entity of entities) select.appendChild(new Option(entity.name, entity.id));
+        if (entities.some((entity) => entity.id === previous)) select.value = previous;
+      }
+    } catch (error) {
+      setStatus(elements.relationshipFormStatus, error.message || "Não foi possível carregar as entidades.", true);
+    }
+  }
+
+  async function handleCreateRelationship(event) {
+    event.preventDefault();
+    const button = elements.relationshipForm?.querySelector('button[type="submit"]');
+    setButtonLoading(button, true, "Salvando conexão…");
+    setStatus(elements.relationshipFormStatus, "");
+    try {
+      await apiFetch("/relationships", { method: "POST", body: formValues(elements.relationshipForm) });
+      elements.relationshipForm.reset();
+      setStatus(elements.relationshipFormStatus, "Conexão adicionada ao mural.");
+      await Promise.all([loadGraph(), loadSources(), loadEntityOptions()]);
+    } catch (error) {
+      setStatus(elements.relationshipFormStatus, error.message || "Não foi possível salvar a conexão.", true);
+    } finally {
+      setButtonLoading(button, false);
+    }
+  }
+
+  // ------------------------------------------------------------
   // Estado de saúde da API
   // ------------------------------------------------------------
 
@@ -923,6 +1060,9 @@
     });
 
     elements.loginForm?.addEventListener("submit", handleLogin);
+    elements.investigateForm?.addEventListener("submit", handleInvestigate);
+    elements.entityForm?.addEventListener("submit", handleCreateEntity);
+    elements.relationshipForm?.addEventListener("submit", handleCreateRelationship);
     elements.logoutButton?.addEventListener("click", handleLogout);
     elements.refreshGraph?.addEventListener("click", loadGraph);
     elements.searchButton?.addEventListener("click", applySearch);
@@ -961,6 +1101,7 @@
 
     await Promise.allSettled([
       loadGraph(),
+      loadSources(),
       checkHealth(),
       checkAdminSession()
     ]);
