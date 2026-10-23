@@ -11,8 +11,6 @@
     relationships: [],
     selectedEntityId: null,
     loadingGraph: false,
-    loadingDocuments: false,
-    uploadingDocument: false
   };
 
   const $ = (selector, root = document) =>
@@ -33,14 +31,6 @@
     graph: $("#graph"),
     graphDetails: $("#entity-details"),
     refreshGraph: $("#refresh-graph"),
-
-    uploadForm: $("#upload-form"),
-    pdfFile: $("#pdf-file"),
-    uploadAccess: $("#upload-access"),
-    uploadStatus: $("#upload-status"),
-    documentsPanel: $("#documents-panel"),
-    documentsList: $("#documents-list"),
-    refreshDocuments: $("#refresh-documents"),
 
     healthStatus: $("#health-status"),
     cookieNotice: $("#cookie-notice"),
@@ -120,24 +110,6 @@
       dateStyle: "short",
       timeStyle: "short"
     }).format(date);
-  }
-
-  function formatFileSize(bytes) {
-    const size = Number(bytes);
-
-    if (!Number.isFinite(size) || size < 0) {
-      return "Tamanho desconhecido";
-    }
-
-    if (size < 1024) {
-      return `${size} bytes`;
-    }
-
-    if (size < 1024 * 1024) {
-      return `${(size / 1024).toFixed(1)} KB`;
-    }
-
-    return `${(size / (1024 * 1024)).toFixed(2)} MB`;
   }
 
   function readableStatus(status) {
@@ -331,49 +303,10 @@
       elements.adminPassword.value = "";
     }
 
-    updateUploadAccess();
-
     if (state.isAdmin) {
-      await Promise.allSettled([
-        loadDocuments(),
-        loadAuditEvents()
-      ]);
-    } else {
-      if (elements.documentsPanel) {
-        elements.documentsPanel.hidden = true;
-      }
-
-      if (elements.documentsList) {
-        elements.documentsList.replaceChildren();
-      }
-
-      if (elements.auditList) {
-        elements.auditList.replaceChildren();
-      }
-    }
-  }
-
-  function updateUploadAccess() {
-    const fileInput = elements.pdfFile;
-    const submitButton = elements.uploadForm?.querySelector(
-      'button[type="submit"]'
-    );
-
-    if (fileInput) {
-      fileInput.disabled = !state.isAdmin || state.uploadingDocument;
-    }
-
-    if (submitButton) {
-      submitButton.disabled = !state.isAdmin || state.uploadingDocument;
-    }
-
-    if (elements.uploadAccess) {
-      setText(
-        elements.uploadAccess,
-        state.isAdmin
-          ? "Sessão administrativa ativa. Você pode enviar um PDF de até 10 MB."
-          : "Entre na área administrativa para habilitar o envio de documentos."
-      );
+      await loadAuditEvents();
+    } else if (elements.auditList) {
+      elements.auditList.replaceChildren();
     }
   }
 
@@ -445,7 +378,6 @@
       );
     } finally {
       setButtonLoading(submitButton, false);
-      updateUploadAccess();
     }
   }
 
@@ -916,218 +848,6 @@
   }
 
   // ------------------------------------------------------------
-  // Upload e gestão de documentos privados
-  // ------------------------------------------------------------
-
-  async function handleDocumentUpload(event) {
-    event.preventDefault();
-
-    if (!state.isAdmin) {
-      setStatus(
-        elements.uploadStatus,
-        "Entre na área administrativa antes de enviar documentos.",
-        true
-      );
-      return;
-    }
-
-    if (state.uploadingDocument) return;
-
-    const file = elements.pdfFile?.files?.[0];
-
-    if (!file) {
-      setStatus(elements.uploadStatus, "Selecione um PDF.", true);
-      return;
-    }
-
-    if (
-      !file.name.toLowerCase().endsWith(".pdf") ||
-      file.type !== "application/pdf"
-    ) {
-      setStatus(
-        elements.uploadStatus,
-        "Selecione um arquivo com extensão PDF e tipo application/pdf.",
-        true
-      );
-      return;
-    }
-
-    const maxSize = 10 * 1024 * 1024;
-
-    if (file.size > maxSize) {
-      setStatus(
-        elements.uploadStatus,
-        "O arquivo ultrapassa o limite de 10 MB.",
-        true
-      );
-      return;
-    }
-
-    state.uploadingDocument = true;
-    updateUploadAccess();
-
-    const submitButton = elements.uploadForm?.querySelector(
-      'button[type="submit"]'
-    );
-
-    setButtonLoading(submitButton, true, "Enviando…");
-    setStatus(elements.uploadStatus, "Enviando e validando o documento…");
-
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const result = await apiFetch("/documents", {
-        method: "POST",
-        body: formData
-      });
-
-      elements.uploadForm.reset();
-
-      setStatus(
-        elements.uploadStatus,
-        result.message || "PDF enviado com sucesso."
-      );
-
-      await loadDocuments();
-    } catch (error) {
-      setStatus(
-        elements.uploadStatus,
-        error.message || "Não foi possível enviar o documento.",
-        true
-      );
-    } finally {
-      state.uploadingDocument = false;
-      setButtonLoading(submitButton, false);
-      updateUploadAccess();
-    }
-  }
-
-  async function loadDocuments() {
-    if (!state.isAdmin || state.loadingDocuments) return;
-
-    state.loadingDocuments = true;
-
-    if (elements.refreshDocuments) {
-      setButtonLoading(elements.refreshDocuments, true, "Atualizando…");
-    }
-
-    try {
-      const data = await apiFetch("/documents");
-      const documents = Array.isArray(data.documents)
-        ? data.documents
-        : [];
-
-      elements.documentsList?.replaceChildren();
-
-      if (elements.documentsPanel) {
-        elements.documentsPanel.hidden = false;
-      }
-
-      if (documents.length === 0) {
-        elements.documentsList?.appendChild(
-          createMessage("Nenhum PDF armazenado.")
-        );
-        return;
-      }
-
-      for (const documentInfo of documents) {
-        const item = createElement("li", "document-item");
-
-        const title = createElement(
-          "strong",
-          "document-name",
-          documentInfo.original_name || "documento.pdf"
-        );
-
-        const metadata = createElement(
-          "p",
-          "muted",
-          `${formatFileSize(documentInfo.size_bytes)} · Enviado em ${formatDate(documentInfo.uploaded_at)}`
-        );
-
-        const download = createElement(
-          "a",
-          "button button-outline",
-          "Baixar PDF"
-        );
-
-        download.href =
-          `${API}/documents/${encodeURIComponent(documentInfo.id)}/download`;
-
-        download.setAttribute("aria-label", `Baixar ${documentInfo.original_name || "documento PDF"}`);
-
-        const actions = createElement("div", "document-actions");
-        actions.appendChild(download);
-
-        const deleteButton = createElement(
-          "button",
-          "button button-outline",
-          "Excluir"
-        );
-
-        deleteButton.type = "button";
-        deleteButton.addEventListener("click", () => {
-          deleteDocument(documentInfo);
-        });
-
-        actions.appendChild(deleteButton);
-        item.append(title, metadata, actions);
-        elements.documentsList?.appendChild(item);
-      }
-    } catch (error) {
-      elements.documentsList?.replaceChildren(
-        createMessage(
-          error.message || "Não foi possível carregar os documentos.",
-          "error-message"
-        )
-      );
-
-      if (elements.documentsPanel) {
-        elements.documentsPanel.hidden = false;
-      }
-    } finally {
-      state.loadingDocuments = false;
-
-      if (elements.refreshDocuments) {
-        setButtonLoading(elements.refreshDocuments, false);
-      }
-    }
-  }
-
-  async function deleteDocument(documentInfo) {
-    if (!state.isAdmin) {
-      setStatus(
-        elements.uploadStatus,
-        "Sua sessão administrativa não está ativa.",
-        true
-      );
-      return;
-    }
-
-    const name = documentInfo.original_name || "este documento";
-
-    if (!window.confirm(`Deseja excluir permanentemente "${name}"?`)) {
-      return;
-    }
-
-    try {
-      await apiFetch(`/documents/${encodeURIComponent(documentInfo.id)}`, {
-        method: "DELETE"
-      });
-
-      setStatus(elements.uploadStatus, "Documento excluído.");
-      await loadDocuments();
-    } catch (error) {
-      setStatus(
-        elements.uploadStatus,
-        error.message || "Não foi possível excluir o documento.",
-        true
-      );
-    }
-  }
-
-  // ------------------------------------------------------------
   // Estado de saúde da API
   // ------------------------------------------------------------
 
@@ -1204,11 +924,7 @@
 
     elements.loginForm?.addEventListener("submit", handleLogin);
     elements.logoutButton?.addEventListener("click", handleLogout);
-    elements.uploadForm?.addEventListener("submit", handleDocumentUpload);
-
     elements.refreshGraph?.addEventListener("click", loadGraph);
-    elements.refreshDocuments?.addEventListener("click", loadDocuments);
-
     elements.searchButton?.addEventListener("click", applySearch);
 
     elements.search?.addEventListener("keydown", (event) => {
@@ -1235,8 +951,6 @@
   async function initialize() {
     attachEvents();
     initializeCookieNotice();
-    updateUploadAccess();
-
     await refreshCsrfToken().catch(() => {
       setStatus(
         elements.loginStatus,
@@ -1254,7 +968,6 @@
     // O token pode ter falhado na primeira tentativa se a API
     // ainda não estivesse pronta. Não presumimos autenticação.
     if (state.isAdmin) {
-      updateUploadAccess();
     }
   }
 
