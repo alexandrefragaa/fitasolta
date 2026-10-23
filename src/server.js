@@ -36,6 +36,8 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 const IS_PRODUCTION = NODE_ENV === "production";
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH;
+const TURSO_DATABASE_URL = process.env.TURSO_DATABASE_URL || "";
+const TURSO_AUTH_TOKEN = process.env.TURSO_AUTH_TOKEN || "";
 
 if (!SESSION_SECRET || SESSION_SECRET.length < 32) {
   throw new Error("SESSION_SECRET precisa existir e ter pelo menos 32 caracteres.");
@@ -258,6 +260,109 @@ const uploadLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Muitos envios de documentos. Aguarde antes de tentar novamente." }
 });
+
+
+/*
+ * Leitura estritamente read-only da fila do Turso. As credenciais ficam
+ * somente no servidor; nunca são enviadas ao navegador.
+ */
+function getTursoSourcesBaseUrl() {
+  if (!TURSO_DATABASE_URL.trim() || !TURSO_AUTH_TOKEN.trim()) {
+    const error = new Error("Integração com Turso não configurada.");
+    error.code = "TURSO_NOT_CONFIGURED";
+    throw error;
+  }
+
+  const normalizedUrl = TURSO_DATABASE_URL.trim().replace(/^libsql:\/\//i, "https://");
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(normalizedUrl);
+  } catch {
+    throw new Error("URL do Turso inválida.");
+  }
+
+  if (parsedUrl.protocol !== "https:" || !parsedUrl.hostname.endsWith(".turso.io")) {
+    throw new Error("URL do Turso inválida.");
+  }
+
+  return parsedUrl.origin;
+}
+
+function sanitizeTursoSourceUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
+      return "";
+    }
+
+    // Remove identificadores de sessão embutidos em caminhos de alguns sistemas judiciais.
+    url.pathname = url.pathname.replace(/;jsessionid=[^/?;]+/i, "");
+    return url.href;
+  } catch {
+    return "";
+  }
+}
+
+async function readTursoSourceQueue() {
+  const endpoint = `${getTursoSourcesBaseUrl()}/v2/pipeline`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${TURSO_AUTH_TOKEN.trim()}`,
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify({
+      requests: [
+        {
+          type: "execute",
+          stmt: {
+            sql: "SELECT id, url, status, title, summary, error_message, created_at, updated_at FROM source_queue ORDER BY created_at DESC LIMIT 200"
+          }
+        },
+        { type: "close" }
+      ]
+    }),
+    signal: AbortSignal.timeout(15000)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Falha ao consultar Turso (HTTP ${response.status}).`);
+  }
+
+  const payload = await response.json();
+  const firstResult = payload?.results?.[0];
+  const queryResult = firstResult?.response?.result;
+
+  if (firstResult?.type !== "ok" || !Array.isArray(queryResult?.cols) || !Array.isArray(queryResult?.rows)) {
+    throw new Error("O Turso retornou uma resposta de consulta inválida.");
+  }
+
+  const columnNames = queryResult.cols.map((column) => column.name);
+  return queryResult.rows.map((row) => {
+    const record = Object.fromEntries(
+      columnNames.map((name, index) => {
+        const cell = row[index];
+        return [name, !cell || cell.type === "null" ? null : cell.value];
+      })
+    );
+
+    const status = ["pending", "processing", "completed", "error"].includes(record.status)
+      ? record.status
+      : "error";
+
+    return {
+      id: String(record.id || ""),
+      url: sanitizeTursoSourceUrl(record.url),
+      status,
+      title: String(record.title || ""),
+      summary: String(record.summary || ""),
+      error_message: String(record.error_message || ""),
+      created_at: String(record.created_at || ""),
+      updated_at: String(record.updated_at || "")
+    };
+  });
+}
 
 app.get("/api/health", (req, res) => {
   try {
@@ -536,6 +641,22 @@ app.delete("/api/documents/:id", requireCsrf, requireAdmin, async (req, res, nex
     res.json({ ok: true });
   } catch (error) {
     next(error);
+  }
+});
+
+app.get("/api/admin/sources", requireAdmin, async (req, res) => {
+  try {
+    const sources = await readTursoSourceQueue();
+    audit(req, "source_queue_view", "source_queue");
+    res.set("Cache-Control", "no-store").json({ sources });
+  } catch (error) {
+    const notConfigured = error?.code === "TURSO_NOT_CONFIGURED";
+    console.error("Não foi possível consultar as fontes do Turso.");
+    res.status(notConfigured ? 503 : 502).json({
+      error: notConfigured
+        ? "Configure TURSO_DATABASE_URL e TURSO_AUTH_TOKEN no ambiente do servidor para habilitar a fila de fontes."
+        : "Não foi possível carregar as fontes do Turso. Confira a URL, o token e a tabela source_queue."
+    });
   }
 });
 
