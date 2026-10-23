@@ -1,0 +1,26 @@
+{
+  "name": "fitasolta",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Quadro investigativo com rastreabilidade de fontes e relações documentadas.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.8.1",
+    "connect-sqlite3": "^0.9.16",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "express-session": "^1.18.1",
+    "helmet": "^8.0.0",
+    "multer": "^2.0.0"
+  }
+}

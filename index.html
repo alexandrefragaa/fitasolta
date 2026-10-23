@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <meta
+    name="description"
+    content="FitaSolta — organize pistas, documentos, fontes e conexões com rastreabilidade."
+  >
+  <meta
+    name="referrer"
+    content="strict-origin-when-cross-origin"
+  >
+  <meta name="theme-color" content="#0b0d12">
+
+  <title>FitaSolta — Toda fita deixa rastros</title>
+
+  <link rel="stylesheet" href="/css/style.css">
+
+  <script src="/js/analytics.js" defer></script>
+  <script src="/js/app.js" defer></script>
+</head>
+
+<body>
+  <header class="topbar">
+    <a
+      class="brand"
+      href="/"
+      aria-label="FitaSolta — página inicial"
+    >
+      <span class="brand-mark" aria-hidden="true">FS</span>
+      <span>FITASOLTA</span>
+    </a>
+
+    <nav aria-label="Navegação principal">
+      <a href="#mapa">Mural</a>
+      <a href="#documentos">Documentos</a>
+
+      <button
+        id="admin-open"
+        class="button button-outline"
+        type="button"
+        aria-haspopup="dialog"
+        aria-controls="admin-dialog"
+      >
+        Área administrativa
+      </button>
+    </nav>
+  </header>
+
+  <main class="container">
+    <!-- Apresentação e pesquisa -->
+    <section class="hero" aria-labelledby="page-title">
+      <p class="eyebrow">PISTAS · FONTES · CONEXÕES</p>
+
+      <h1 id="page-title">Toda fita deixa rastros.</h1>
+
+      <p>
+        Organize entidades e documentos, investigue relações e
+        acompanhe a origem de cada informação sem confundir
+        hipótese com fato comprovado.
+      </p>
+
+      <div class="search-row" role="search">
+        <label class="sr-only" for="search">
+          Pesquisar entidades
+        </label>
+
+        <input
+          id="search"
+          name="search"
+          type="search"
+          placeholder="Pesquisar nomes, categorias ou descrições…"
+          autocomplete="off"
+        >
+
+        <button
+          id="search-button"
+          class="button"
+          type="button"
+        >
+          Pesquisar
+        </button>
+      </div>
+
+      <p class="notice">
+        Cada relação deve ter uma fonte e uma classificação.
+        Uma associação, por si só, não prova culpa, intenção
+        ou participação criminosa.
+      </p>
+    </section>
+
+    <!-- Mural de conexões -->
+    <section
+      id="mapa"
+      class="panel"
+      aria-labelledby="graph-heading"
+    >
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">EXPLORAÇÃO</p>
+          <h2 id="graph-heading">Mural de conexões</h2>
+        </div>
+
+        <button
+          id="refresh-graph"
+          class="button button-outline"
+          type="button"
+        >
+          Atualizar
+        </button>
+      </div>
+
+      <div
+        class="graph-toolbar"
+        aria-label="Legenda do mural"
+      >
+        <span class="legend-dot" aria-hidden="true"></span>
+        <span>Entidade</span>
+
+        <span class="muted">
+          Selecione um nó para consultar os detalhes.
+        </span>
+      </div>
+
+      <div
+        id="graph"
+        class="graph"
+        role="region"
+        aria-label="Grafo interativo de entidades e relações"
+        aria-describedby="graph-description"
+        tabindex="0"
+      >
+        <p class="empty-state">
+          Carregando dados do servidor…
+        </p>
+      </div>
+
+      <p id="graph-description" class="sr-only">
+        Explore as entidades exibidas no mural. Consulte os detalhes
+        e as fontes disponíveis antes de interpretar uma relação.
+      </p>
+
+      <div
+        id="entity-details"
+        class="details"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <p>
+          Selecione uma entidade para ver os detalhes e as
+          fontes disponíveis.
+        </p>
+      </div>
+    </section>
+
+    <!-- Documentos e envio privado -->
+    <section
+      id="documentos"
+      class="panel"
+      aria-labelledby="documents-heading"
+    >
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">ARQUIVOS</p>
+          <h2 id="documents-heading">Documentos do caso</h2>
+        </div>
+      </div>
+
+      <p class="muted">
+        O envio exige uma sessão administrativa. Os PDFs são
+        armazenados fora da pasta pública e podem ser acessados
+        somente por um administrador autenticado. A validação
+        da assinatura do arquivo não substitui uma análise
+        antimalware. A extração automática de texto (OCR) e
+        a análise automática ainda não estão implementadas.
+      </p>
+
+      <p
+        id="upload-access"
+        class="status"
+        role="status"
+        aria-live="polite"
+      >
+        Entre na área administrativa para habilitar o envio
+        de documentos.
+      </p>
+
+      <form id="upload-form">
+        <label for="pdf-file">
+          Arquivo PDF (máximo de 10 MB)
+        </label>
+
+        <input
+          id="pdf-file"
+          name="file"
+          type="file"
+          accept="application/pdf,.pdf"
+          aria-describedby="upload-access upload-status"
+          required
+          disabled
+        >
+
+        <button
+          class="button"
+          type="submit"
+          disabled
+        >
+          Enviar PDF
+        </button>
+      </form>
+
+      <p
+        id="upload-status"
+        class="status"
+        role="status"
+        aria-live="polite"
+      ></p>
+
+      <section
+        id="documents-panel"
+        class="documents-panel"
+        aria-labelledby="stored-documents-heading"
+        hidden
+      >
+        <div class="section-heading">
+          <h3 id="stored-documents-heading">
+            PDFs armazenados
+          </h3>
+
+          <button
+            id="refresh-documents"
+            class="button button-outline"
+            type="button"
+          >
+            Atualizar lista
+          </button>
+        </div>
+
+        <ul
+          id="documents-list"
+          class="documents-list"
+        ></ul>
+      </section>
+    </section>
+
+    <!-- Critérios para interpretar evidências -->
+    <section
+      class="panel"
+      aria-labelledby="principles-heading"
+    >
+      <p class="eyebrow">TRANSPARÊNCIA</p>
+
+      <h2 id="principles-heading">
+        Como interpretar uma conexão
+      </h2>
+
+      <ul class="principles">
+        <li>
+          <strong>Documentado:</strong>
+          existe uma fonte que sustenta a informação descrita.
+        </li>
+
+        <li>
+          <strong>Alegação:</strong>
+          alguém fez uma afirmação; isso não significa que
+          ela foi comprovada.
+        </li>
+
+        <li>
+          <strong>Hipótese:</strong>
+          interpretação que ainda precisa ser testada.
+        </li>
+
+        <li>
+          <strong>Não verificado:</strong>
+          a origem ou a exatidão ainda não foi confirmada.
+        </li>
+
+        <li>
+          <strong>Decisão judicial:</strong>
+          identificar a decisão e seu alcance, sem extrapolar
+          seu conteúdo.
+        </li>
+      </ul>
+    </section>
+  </main>
+
+  <!-- Rodapé -->
+  <footer class="footer">
+    <span>FitaSolta — ambiente de desenvolvimento</span>
+
+    <span
+      id="health-status"
+      role="status"
+      aria-live="polite"
+    >
+      Verificando servidor…
+    </span>
+  </footer>
+
+  <!-- Diálogo administrativo -->
+  <dialog
+    id="admin-dialog"
+    class="dialog"
+    aria-labelledby="admin-title"
+    aria-describedby="admin-description"
+  >
+    <form method="dialog" class="dialog-close-row">
+      <button
+        class="icon-button"
+        type="submit"
+        value="cancel"
+        aria-label="Fechar janela"
+      >
+        ×
+      </button>
+    </form>
+
+    <p class="eyebrow">ACESSO RESTRITO</p>
+
+    <h2 id="admin-title">Área administrativa</h2>
+
+    <p id="admin-description" class="muted">
+      A senha é validada no servidor. Ela não deve ser
+      armazenada no JavaScript do navegador.
+    </p>
+
+    <form id="login-form" class="form-stack">
+      <label for="admin-password">
+        Senha administrativa
+      </label>
+
+      <input
+        id="admin-password"
+        name="password"
+        type="password"
+        autocomplete="current-password"
+        minlength="12"
+        maxlength="200"
+        aria-describedby="login-status"
+        required
+      >
+
+      <button
+        class="button"
+        type="submit"
+      >
+        Entrar
+      </button>
+    </form>
+
+    <p
+      id="login-status"
+      class="status"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    ></p>
+
+    <section
+      id="audit-panel"
+      aria-labelledby="audit-heading"
+      hidden
+    >
+      <div class="section-heading">
+        <h3 id="audit-heading">Eventos de auditoria</h3>
+
+        <button
+          id="logout-button"
+          class="button button-outline"
+          type="button"
+        >
+          Sair
+        </button>
+      </div>
+
+      <ol id="audit-list" class="audit-list"></ol>
+    </section>
+  </dialog>
+
+  <!-- Aviso sobre o cookie essencial -->
+  <div
+    id="cookie-notice"
+    class="cookie-notice"
+    role="region"
+    aria-label="Aviso sobre cookies"
+    hidden
+  >
+    <p>
+      Este site usa um cookie essencial de sessão para a área
+      administrativa. O contador incluído é local à aba e não
+      envia dados de uso a terceiros.
+    </p>
+
+    <button
+      id="cookie-dismiss"
+      class="button button-outline"
+      type="button"
+    >
+      Entendi
+    </button>
+  </div>
+</body>
+</html>

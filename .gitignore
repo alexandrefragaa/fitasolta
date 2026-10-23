@@ -1,0 +1,40 @@
+node_modules/
+
+# Variáveis de ambiente e segredos
+.env
+.env.*
+!.env.example
+
+# Banco de dados local SQLite
+data/*.sqlite
+data/*.sqlite3
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Documentos privados enviados para análise
+private_uploads/*
+!private_uploads/.gitkeep
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Arquivos temporários
+tmp/
+temp/
+.cache/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Cobertura de testes
+coverage/
