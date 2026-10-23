@@ -76,17 +76,3 @@ test("as classificações de evidência contêm os estados esperados", () => {
   assert.ok(EVIDENCE_STATUSES.includes("nao_verificado"));
   assert.ok(!EVIDENCE_STATUSES.includes("qualquer_coisa"));
 });
- () => {
-  assert.equal(
-    sanitizeOriginalFilename("../../relatorio final.pdf"),
-    ".._.._relatorio final.pdf"
-  );
-
-  assert.ok(
-    EVIDENCE_STATUSES.includes("nao_verificado")
-  );
-
-  assert.ok(
-    !EVIDENCE_STATUSES.includes("qualquer_coisa")
-  );
-});
