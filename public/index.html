@@ -169,11 +169,12 @@
       </div>
 
       <p class="muted">
-        O FitaSolta registra links e informações sobre as fontes,
-        mas não hospeda PDFs nem recebe arquivos enviados. Sempre que
-        cadastrar uma entidade ou relação, inclua a URL da fonte,
-        a data relevante e a classificação da evidência.
+        Consulte os links associados às entidades e relações do mural.
+        As fontes são abertas no site original; o FitaSolta não hospeda PDFs.
       </p>
+      <div id="sources-list" class="source-list" aria-live="polite">
+        <p class="empty-state">Carregando fontes cadastradas…</p>
+      </div>
 
       <p>
         Prefira documentos oficiais, decisões judiciais, registros
@@ -296,6 +297,69 @@
       aria-live="polite"
       aria-atomic="true"
     ></p>
+
+    <section id="manage-panel" aria-labelledby="manage-heading" hidden>
+      <h3 id="manage-heading">Cadastrar no mural</h3>
+      <p class="muted">Adicione pessoas, organizações, documentos ou pontos e relacione-os. Os links cadastrados ficam visíveis na seção Fontes externas.</p>
+
+      <form id="entity-form" class="form-stack">
+        <h4>Nova pessoa, ponto ou entidade</h4>
+        <label for="entity-name">Nome / título</label>
+        <input id="entity-name" name="name" maxlength="180" required>
+        <label for="entity-type">Tipo</label>
+        <select id="entity-type" name="type">
+          <option value="person">Pessoa</option>
+          <option value="organization">Organização</option>
+          <option value="institution">Instituição</option>
+          <option value="document">Documento</option>
+          <option value="event">Evento</option>
+          <option value="location">Local / ponto</option>
+          <option value="other">Outro</option>
+        </select>
+        <label for="entity-description">Descrição / contexto</label>
+        <textarea id="entity-description" name="description" maxlength="3000" rows="3"></textarea>
+        <label for="entity-source-url">Link direto da fonte</label>
+        <input id="entity-source-url" name="source_url" type="url" placeholder="https://..." maxlength="2048">
+        <label for="entity-source-date">Data da fonte</label>
+        <input id="entity-source-date" name="source_date" type="date">
+        <label for="entity-status">Classificação</label>
+        <select id="entity-status" name="evidence_status">
+          <option value="documentado">Documentado</option>
+          <option value="fato_documentado">Fato documentado</option>
+          <option value="alegacao">Alegação</option>
+          <option value="hipotese">Hipótese</option>
+          <option value="nao_verificado" selected>Não verificado</option>
+        </select>
+        <button class="button" type="submit">Adicionar ao mural</button>
+        <p id="entity-form-status" class="status" role="status"></p>
+      </form>
+
+      <form id="relationship-form" class="form-stack">
+        <h4>Nova conexão entre pontos</h4>
+        <label for="relationship-source">Origem</label>
+        <select id="relationship-source" name="source_id" required></select>
+        <label for="relationship-target">Destino</label>
+        <select id="relationship-target" name="target_id" required></select>
+        <label for="relationship-label">Tipo de conexão / traçado</label>
+        <input id="relationship-label" name="label" maxlength="180" placeholder="Ex.: trabalhou em, encontrou-se com, citado em" required>
+        <label for="relationship-description">Descrição e contexto</label>
+        <textarea id="relationship-description" name="description" maxlength="3000" rows="3"></textarea>
+        <label for="relationship-source-url">Link direto da evidência</label>
+        <input id="relationship-source-url" name="source_url" type="url" placeholder="https://..." maxlength="2048">
+        <label for="relationship-source-date">Data da fonte</label>
+        <input id="relationship-source-date" name="source_date" type="date">
+        <label for="relationship-status">Classificação</label>
+        <select id="relationship-status" name="evidence_status">
+          <option value="documentado">Documentado</option>
+          <option value="fato_documentado">Fato documentado</option>
+          <option value="alegacao">Alegação</option>
+          <option value="hipotese">Hipótese</option>
+          <option value="nao_verificado" selected>Não verificado</option>
+        </select>
+        <button class="button" type="submit">Adicionar conexão</button>
+        <p id="relationship-form-status" class="status" role="status"></p>
+      </form>
+    </section>
 
     <section
       id="audit-panel"
