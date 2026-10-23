@@ -300,7 +300,7 @@
 
     <section id="manage-panel" aria-labelledby="manage-heading" hidden>
       <h3 id="manage-heading">Cadastrar no mural</h3>
-      <p class="muted">Adicione pessoas, organizações, documentos ou pontos e relacione-os. Os links cadastrados ficam visíveis na seção Fontes externas.</p>
+      <p class="muted">Cadastre pessoas, casos, crimes, sentenças, anulações, pontos e linhas de investigação. Adicione links diretos; registros e conexões aparecem no mural e as fontes aparecem publicamente. Marque hipóteses como hipótese e não apresente suspeitas como fatos.</p>
 
       <form id="entity-form" class="form-stack">
         <h4>Nova pessoa, ponto ou entidade</h4>
@@ -312,8 +312,13 @@
           <option value="organization">Organização</option>
           <option value="institution">Instituição</option>
           <option value="document">Documento</option>
-          <option value="event">Evento</option>
+          <option value="event">Evento / caso</option>
+          <option value="crime">Crime / acusação</option>
+          <option value="sentence">Sentença / decisão judicial</option>
+          <option value="annulment">Anulação / recurso</option>
+          <option value="lead">Possível mandante / linha de investigação</option>
           <option value="location">Local / ponto</option>
+          <option value="evidence">Evidência / documento</option>
           <option value="other">Outro</option>
         </select>
         <label for="entity-description">Descrição / contexto</label>
