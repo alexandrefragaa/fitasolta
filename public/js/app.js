@@ -12,6 +12,8 @@
     selectedEntityId: null,
     loadingGraph: false,
     loadingDocuments: false,
+    loadingSourceQueue: false,
+    sourceQueue: [],
     uploadingDocument: false
   };
 
@@ -27,6 +29,11 @@
     auditPanel: $("#audit-panel"),
     auditList: $("#audit-list"),
     logoutButton: $("#logout-button"),
+    sourceQueuePanel: $("#source-queue-panel"),
+    sourceQueueStatus: $("#source-queue-status"),
+    sourceQueueSearch: $("#source-queue-search"),
+    sourceQueueList: $("#source-queue-list"),
+    refreshSourceQueue: $("#refresh-source-queue"),
 
     search: $("#search"),
     searchButton: $("#search-button"),
@@ -327,6 +334,10 @@
       elements.auditPanel.hidden = !state.isAdmin;
     }
 
+    if (elements.sourceQueuePanel) {
+      elements.sourceQueuePanel.hidden = !state.isAdmin;
+    }
+
     if (elements.adminPassword) {
       elements.adminPassword.value = "";
     }
@@ -336,7 +347,8 @@
     if (state.isAdmin) {
       await Promise.allSettled([
         loadDocuments(),
-        loadAuditEvents()
+        loadAuditEvents(),
+        loadSourceQueue()
       ]);
     } else {
       if (elements.documentsPanel) {
@@ -350,6 +362,10 @@
       if (elements.auditList) {
         elements.auditList.replaceChildren();
       }
+
+      state.sourceQueue = [];
+      if (elements.sourceQueueList) elements.sourceQueueList.replaceChildren();
+      if (elements.sourceQueueStatus) setText(elements.sourceQueueStatus, "");
     }
   }
 
@@ -529,6 +545,115 @@
           "error-message"
         )
       );
+    }
+  }
+
+
+  // ------------------------------------------------------------
+  // Fontes coletadas no Turso (somente leitura)
+  // ------------------------------------------------------------
+
+  function readableQueueStatus(status) {
+    const labels = {
+      pending: "Pendente",
+      processing: "Em processamento",
+      completed: "Concluída",
+      error: "Precisa de revisão"
+    };
+    return labels[status] || "Desconhecido";
+  }
+
+  function renderSourceQueue() {
+    if (!elements.sourceQueueList) return;
+
+    const term = (elements.sourceQueueSearch?.value || "")
+      .trim()
+      .toLocaleLowerCase("pt-BR");
+    const sources = state.sourceQueue.filter((source) => {
+      if (!term) return true;
+      return [source.title, source.url, source.summary, source.status, source.error_message]
+        .some((value) => String(value || "").toLocaleLowerCase("pt-BR").includes(term));
+    });
+
+    elements.sourceQueueList.replaceChildren();
+
+    if (sources.length === 0) {
+      elements.sourceQueueList.appendChild(
+        createMessage(
+          term ? "Nenhuma fonte corresponde ao filtro." : "Nenhuma fonte disponível na fila do Turso."
+        )
+      );
+      return;
+    }
+
+    for (const source of sources) {
+      const item = createElement("li", "source-queue-item");
+      const header = createElement("div", "source-queue-item-heading");
+      const title = createElement("strong", "source-queue-title", source.title || "Fonte sem título");
+      const knownStatus = ["pending", "processing", "completed", "error"].includes(source.status)
+        ? source.status
+        : "unknown";
+      const status = createElement(
+        "span",
+        `source-queue-status source-status-${knownStatus}`,
+        readableQueueStatus(source.status)
+      );
+      header.append(title, status);
+      item.appendChild(header);
+
+      if (source.summary) {
+        item.appendChild(createElement("p", "source-queue-summary", source.summary));
+      }
+
+      if (source.error_message) {
+        item.appendChild(createElement("p", "source-queue-error", `Observação: ${source.error_message}`));
+      }
+
+      const footer = createElement("div", "source-queue-item-footer");
+      const date = createElement("span", "muted", `Atualizada: ${formatDate(source.updated_at || source.created_at)}`);
+      footer.appendChild(date);
+      appendSourceLink(footer, source.url, "Abrir fonte");
+      item.appendChild(footer);
+      elements.sourceQueueList.appendChild(item);
+    }
+  }
+
+  async function loadSourceQueue() {
+    if (!state.isAdmin || !elements.sourceQueueList || state.loadingSourceQueue) return;
+
+    state.loadingSourceQueue = true;
+    setButtonLoading(elements.refreshSourceQueue, true, "Carregando…");
+    elements.sourceQueueList.replaceChildren(createMessage("Carregando fontes do Turso…"));
+    setStatus(elements.sourceQueueStatus, "");
+
+    try {
+      const data = await apiFetch("/admin/sources");
+      state.sourceQueue = Array.isArray(data.sources) ? data.sources : [];
+      const counts = { completed: 0, pending: 0, processing: 0, error: 0 };
+      for (const source of state.sourceQueue) {
+        if (Object.prototype.hasOwnProperty.call(counts, source.status)) {
+          counts[source.status] += 1;
+        }
+      }
+
+      setStatus(
+        elements.sourceQueueStatus,
+        `${state.sourceQueue.length} fontes · ${counts.completed} concluídas · ${counts.pending} pendentes · ${counts.error} para revisão`
+      );
+      renderSourceQueue();
+    } catch (error) {
+      state.sourceQueue = [];
+      elements.sourceQueueList.replaceChildren(
+        createMessage(error.message || "Não foi possível carregar as fontes.", "error-message")
+      );
+      setStatus(
+        elements.sourceQueueStatus,
+        error.message || "Não foi possível carregar a fila de fontes.",
+        true
+      );
+    } finally {
+      state.loadingSourceQueue = false;
+      setButtonLoading(elements.refreshSourceQueue, false);
     }
   }
 
@@ -1208,6 +1333,8 @@
 
     elements.refreshGraph?.addEventListener("click", loadGraph);
     elements.refreshDocuments?.addEventListener("click", loadDocuments);
+    elements.refreshSourceQueue?.addEventListener("click", loadSourceQueue);
+    elements.sourceQueueSearch?.addEventListener("input", renderSourceQueue);
 
     elements.searchButton?.addEventListener("click", applySearch);
 
