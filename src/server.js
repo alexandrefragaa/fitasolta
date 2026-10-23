@@ -399,23 +399,23 @@ function decodeHtml(value) {
 }
 
 function extractPageText(html) {
-  const title = decodeHtml((html.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i)?.[1] || "").replace(/<[^>]+>/g, " ").trim());
+  const title = decodeHtml((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "").replace(/<[^>]+>/g, " ").trim());
   const description = decodeHtml((html.match(/<meta[^>]+(?:name|property)=["'](?:description|og:description)["'][^>]+content=["']([^"']*)["']/i)?.[1] || "").trim());
   const body = html
-    .replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi, " ")
-    .replace(/<style\\b[^>]*>[\\s\\S]*?<\\/style>/gi, " ")
-    .replace(/<noscript\\b[^>]*>[\\s\\S]*?<\\/noscript>/gi, " ")
-    .replace(/<(?:nav|footer|header|svg)\\b[^>]*>[\\s\\S]*?<\\/(?:nav|footer|header|svg)>/gi, " ")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<(?:nav|footer|header|svg)\b[^>]*>[\s\S]*?<\/(?:nav|footer|header|svg)>/gi, " ")
     .replace(/<[^>]+>/g, " ")
-    .replace(/\\s+/g, " ");
+    .replace(/\s+/g, " ");
   return { title: title.slice(0, 300), description: description.slice(0, 1000), text: decodeHtml(body).slice(0, 18000) };
 }
 
 function isPublicHostname(hostname) {
-  const host = hostname.toLowerCase().replace(/^\\[|\\]$/g, "");
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) return false;
-  if (/^(127\\.|10\\.|192\\.168\\.|169\\.254\\.|0\\.)/.test(host)) return false;
-  const match = host.match(/^172\\.(\\d+)\\./);
+  if (/^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host)) return false;
+  const match = host.match(/^172\.(\d+)\./);
   if (match && Number(match[1]) >= 16 && Number(match[1]) <= 31) return false;
   if (host === "::1" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:")) return false;
   return true;
