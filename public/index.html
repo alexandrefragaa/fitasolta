@@ -6,7 +6,7 @@
 
   <meta
     name="description"
-    content="FitaSolta — organize pistas, documentos, fontes e conexões com rastreabilidade."
+    content="FitaSolta — organize entidades, fontes externas e conexões documentadas com rastreabilidade."
   >
   <meta
     name="referrer"
@@ -35,7 +35,7 @@
 
     <nav aria-label="Navegação principal">
       <a href="#mapa">Mural</a>
-      <a href="#documentos">Documentos</a>
+      <a href="#fontes">Fontes externas</a>
 
       <button
         id="admin-open"
@@ -57,7 +57,7 @@
       <h1 id="page-title">Toda fita deixa rastros.</h1>
 
       <p>
-        Organize entidades e documentos, investigue relações e
+        Organize entidades e fontes externas, investigue relações e
         acompanhe a origem de cada informação sem confundir
         hipótese com fato comprovado.
       </p>
@@ -155,94 +155,32 @@
       </div>
     </section>
 
-    <!-- Documentos e envio privado -->
+    <!-- Fontes externas -->
     <section
-      id="documentos"
+      id="fontes"
       class="panel"
-      aria-labelledby="documents-heading"
+      aria-labelledby="sources-heading"
     >
       <div class="section-heading">
         <div>
-          <p class="eyebrow">ARQUIVOS</p>
-          <h2 id="documents-heading">Documentos do caso</h2>
+          <p class="eyebrow">REFERÊNCIAS</p>
+          <h2 id="sources-heading">Fontes externas</h2>
         </div>
       </div>
 
       <p class="muted">
-        O envio exige uma sessão administrativa. Os PDFs são
-        armazenados fora da pasta pública e podem ser acessados
-        somente por um administrador autenticado. A validação
-        da assinatura do arquivo não substitui uma análise
-        antimalware. A extração automática de texto (OCR) e
-        a análise automática ainda não estão implementadas.
+        O FitaSolta registra links e informações sobre as fontes,
+        mas não hospeda PDFs nem recebe arquivos enviados. Sempre que
+        cadastrar uma entidade ou relação, inclua a URL da fonte,
+        a data relevante e a classificação da evidência.
       </p>
 
-      <p
-        id="upload-access"
-        class="status"
-        role="status"
-        aria-live="polite"
-      >
-        Entre na área administrativa para habilitar o envio
-        de documentos.
+      <p>
+        Prefira documentos oficiais, decisões judiciais, registros
+        públicos e reportagens com autoria e data identificáveis.
+        Uma fonte pode sustentar uma alegação sem comprovar que ela
+        seja verdadeira; registre o que a fonte efetivamente afirma.
       </p>
-
-      <form id="upload-form">
-        <label for="pdf-file">
-          Arquivo PDF (máximo de 10 MB)
-        </label>
-
-        <input
-          id="pdf-file"
-          name="file"
-          type="file"
-          accept="application/pdf,.pdf"
-          aria-describedby="upload-access upload-status"
-          required
-          disabled
-        >
-
-        <button
-          class="button"
-          type="submit"
-          disabled
-        >
-          Enviar PDF
-        </button>
-      </form>
-
-      <p
-        id="upload-status"
-        class="status"
-        role="status"
-        aria-live="polite"
-      ></p>
-
-      <section
-        id="documents-panel"
-        class="documents-panel"
-        aria-labelledby="stored-documents-heading"
-        hidden
-      >
-        <div class="section-heading">
-          <h3 id="stored-documents-heading">
-            PDFs armazenados
-          </h3>
-
-          <button
-            id="refresh-documents"
-            class="button button-outline"
-            type="button"
-          >
-            Atualizar lista
-          </button>
-        </div>
-
-        <ul
-          id="documents-list"
-          class="documents-list"
-        ></ul>
-      </section>
     </section>
 
     <!-- Critérios para interpretar evidências -->
