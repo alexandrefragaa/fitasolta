@@ -53,17 +53,24 @@ const libsqlClient = createClient({
   authToken: TURSO_TOKEN
 });
 
+// Converte as linhas do libSQL para objetos simples com nomes de colunas.
+function rowsAsObjects(result) {
+  return result.rows.map((row) => Object.fromEntries(
+    result.columns.map((column, index) => [column, row[index]])
+  ));
+}
+
 // Compatibilidade assíncrona com os métodos usados no restante do servidor.
 const db = {
   prepare(sql) {
     return {
       async all(...args) {
         const result = await libsqlClient.execute({ sql, args });
-        return result.rows.map((row) => ({ ...row }));
+        return rowsAsObjects(result);
       },
       async get(...args) {
         const result = await libsqlClient.execute({ sql, args });
-        return result.rows.length ? { ...result.rows[0] } : undefined;
+        return result.rows.length ? rowsAsObjects(result)[0] : undefined;
       },
       async run(...args) {
         const result = await libsqlClient.execute({ sql, args });
