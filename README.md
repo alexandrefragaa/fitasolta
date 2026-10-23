@@ -1,83 +1,70 @@
-# Tribunal das Conexões — base inicial
+# FitaSolta — mural de fontes e conexões
 
-Esta é uma **base de desenvolvimento**, não uma aplicação pronta para produção nem uma auditoria jurídica das informações.
+O FitaSolta organiza entidades, relações e fontes externas com rastreabilidade. O site guarda metadados e links; não recebe nem hospeda PDFs enviados.
 
 ## Requisitos
 
-- Node.js 20 ou superior
-- VS Code
+- Node.js 22.x
+- Uma base Turso (libSQL)
+- Git e VS Code (para desenvolvimento local)
 
-## Instalação no Windows / VS Code
+## Configuração local
 
-1. Extraia a pasta do ZIP.
-2. Abra a pasta no VS Code.
-3. Abra Terminal → Novo Terminal.
-4. Execute:
+1. Instale as dependências:
+
+   ```bash
+   npm install
+   ```
+
+2. Copie `.env.example` para `.env`.
+3. No painel do Turso, crie um token com permissão de leitura e escrita. Coloque a URL do banco em `HOST_TURSO` e o token em `TOKEN_TURSO`.
+4. Gere um segredo de sessão:
+
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+   ```
+
+   Cole o resultado em `SESSION_SECRET`.
+
+5. Gere um hash bcrypt para uma senha administrativa forte:
+
+   ```bash
+   node -e "const b=require('bcryptjs'); const p=process.argv[1]; if(!p){console.error('Informe uma senha entre aspas como argumento.');process.exit(1)} console.log(b.hashSync(p,12))" "SUA_SENHA_FORTE_AQUI"
+   ```
+
+   Substitua o texto de exemplo pela sua própria senha, execute localmente e coloque somente o hash retornado em `ADMIN_PASSWORD_HASH`. Não compartilhe a senha real nem publique o arquivo `.env`.
+
+6. Inicie o servidor e abra o endereço local:
+
+   ```bash
+   npm run dev
+   ```
+
+   Acesse http://localhost:3333.
+
+## Testes
 
 ```bash
-npm install
+npm test
+node --check src/server.js
 ```
 
-5. Copie `.env.example` para `.env`.
-6. Gere um segredo de sessão:
+## O que o projeto oferece
 
-```bash
-node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
-```
+- Mural de entidades e relações.
+- URL, data e classificação da evidência para rastrear as fontes.
+- Área administrativa protegida por sessão, CSRF e limite de tentativas de login.
+- Auditoria de eventos sem registrar o IP em texto aberto.
+- Banco remoto Turso/libSQL para persistência em ambiente serverless.
+- CSS, JavaScript e HTML servidos a partir de `public/`.
 
-Copie o resultado para `SESSION_SECRET` no `.env`.
+## O que ainda precisa de trabalho
 
-7. Gere um hash bcrypt para a senha administrativa:
+- O projeto não pesquisa a web automaticamente nem confirma as fontes por conta própria.
+- O mural não prova uma relação só porque duas entidades estão conectadas; cada afirmação deve ser conferida em fontes confiáveis.
+- Antes de um uso sensível ou público amplo, faça revisão de segurança e privacidade, configure backups e teste a restauração.
+- Não registre senhas, tokens ou conteúdo privado nos logs.
 
-```bash
-node -e "const b=require('bcryptjs'); const p=process.argv[1]; if(!p){console.error('Informe uma senha entre aspas como argumento.');process.exit(1)} console.log(b.hashSync(p,12))" "SUA_SENHA_FORTE_AQUI"
-```
+## Variáveis de ambiente na Vercel
 
-Substitua `SUA_SENHA_FORTE_AQUI` por uma senha forte, execute localmente e coloque **somente o hash retornado** em `ADMIN_PASSWORD_HASH`. Não compartilhe sua senha real nem publique `.env`.
-
-8. Inicie:
-
-```bash
-npm run dev
-```
-
-9. Abra `http://localhost:3000`.
-
-## O que esta base já faz
-
-- Separa HTML, CSS, JavaScript e backend.
-- Usa Helmet para cabeçalhos de segurança e CSP.
-- Usa cookie de sessão `HttpOnly`, `SameSite=Strict` e `Secure` em produção.
-- Protege login com limite de tentativas.
-- Verifica token CSRF nas operações de autenticação e upload.
-- Registra eventos de auditoria no banco SQLite do servidor.
-- Protege o endpoint de auditoria com autenticação no servidor.
-- Recebe PDFs em diretório privado e valida tipo/tamanho básicos.
-- Não carrega scripts de analytics de terceiros.
-
-## O que ainda NÃO faz
-
-- Não tem OCR nem extração real de texto dos PDFs.
-- Não tem IA, pesquisa na web, monitoramento automático ou grafo com relações verificadas.
-- Não implementa 2FA.
-- Não substitui avaliação de segurança, política de privacidade ou revisão jurídica.
-- O SQLite é apropriado para desenvolvimento/pequeno protótipo; produção pode exigir PostgreSQL, armazenamento de objetos privado e serviço de processamento isolado.
-- O diretório de uploads é privado por não ser servido como conteúdo estático; ainda é necessário adicionar antivírus/antimalware, inspeção real do conteúdo e regras de retenção antes de aceitar documentos de terceiros.
-
-## HTTPS / SSL
-
-Em `localhost`, use HTTP local para desenvolvimento. Em produção, publique atrás de um provedor que ofereça HTTPS válido (por exemplo, Let's Encrypt ou HTTPS gerenciado pela hospedagem). Configure `NODE_ENV=production` e `SESSION_SECRET` forte. Se usar proxy reverso, revise a configuração `trust proxy` no servidor para corresponder exatamente à infraestrutura. Não habilite `trust proxy` indiscriminadamente.
-
-## Analytics e cookies
-
-A base não usa Google Analytics, pixels publicitários ou cookies de rastreamento. O cookie de sessão é necessário para login. Antes de adicionar analytics, defina finalidade, dados coletados, retenção, base legal e mecanismo de consentimento aplicável; não carregue rastreadores antes do consentimento quando ele for necessário.
-
-## Antes de publicar
-
-- Use PostgreSQL/armazenamento de arquivos privados conforme a escala.
-- Adicione 2FA, recuperação de conta segura e gestão de usuários.
-- Adicione testes automatizados, monitoramento, backups criptografados e restauração testada.
-- Configure logs sem senhas, tokens ou conteúdo sensível.
-- Adicione verificação de malware, limites de upload e pipeline de PDF/OCR isolado.
-- Faça revisão de segurança e LGPD.
-- Verifique cada afirmação, relação e conclusão jurídica contra fontes primárias, registrando data, URL, trecho e estado processual.
+Configure `HOST_TURSO`, `TOKEN_TURSO`, `SESSION_SECRET` e `ADMIN_PASSWORD_HASH` em **Project Settings → Environment Variables**. Não publique os valores no GitHub. Após mudar variáveis de ambiente, faça um novo deploy.

@@ -75,12 +75,9 @@ input:focus-visible { border-color: #f28a95; }
 .evidence-hipotese { border-color: #696fc2; color: #d0d3ff; }
 .evidence-nao_verificado { border-color: #596174; color: #c1c8d7; }
 .evidence-decisao_judicial { border-color: #a44754; color: #ffbdc4; }
-#upload-form, .form-stack { display: grid; gap: .75rem; max-width: 560px; }
+.form-stack { display: grid; gap: .75rem; max-width: 560px; }
 .status { min-height: 1.4rem; color: var(--green); overflow-wrap: anywhere; }
 .status.error { color: #ff9aa4; }
-.documents-panel { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); }
-.documents-list { padding-left: 1.2rem; }
-.documents-list li { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; margin: .75rem 0; color: var(--muted); }
 .text-link { margin-left: auto; }
 .principles { color: var(--muted); padding-left: 1.3rem; }
 .principles li { margin: .65rem 0; }
@@ -101,7 +98,6 @@ input:focus-visible { border-color: #f28a95; }
   nav { width: 100%; flex-wrap: wrap; }
   .search-row { flex-direction: column; }
   .footer, .cookie-notice { flex-direction: column; align-items: stretch; }
-  .documents-list li { align-items: flex-start; flex-direction: column; }
   .text-link { margin-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
