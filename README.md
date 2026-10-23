@@ -1,10 +1,11 @@
-# Tribunal das Conexões — base inicial
+# FitaSolta — mural de fontes e conexões
 
 Esta é uma **base de desenvolvimento**, não uma aplicação pronta para produção nem uma auditoria jurídica das informações.
 
 ## Requisitos
 
-- Node.js 20 ou superior
+- Node.js 22.x
+- Banco Turso (libSQL)
 - VS Code
 
 ## Instalação no Windows / VS Code
@@ -49,20 +50,17 @@ npm run dev
 - Usa Helmet para cabeçalhos de segurança e CSP.
 - Usa cookie de sessão `HttpOnly`, `SameSite=Strict` e `Secure` em produção.
 - Protege login com limite de tentativas.
-- Verifica token CSRF nas operações de autenticação e upload.
-- Registra eventos de auditoria no banco SQLite do servidor.
+- Verifica token CSRF nas operações administrativas.
+- Registra eventos de auditoria e sessões no banco Turso.
 - Protege o endpoint de auditoria com autenticação no servidor.
-- Recebe PDFs em diretório privado e valida tipo/tamanho básicos.
 - Não carrega scripts de analytics de terceiros.
 
 ## O que ainda NÃO faz
 
-- Não tem OCR nem extração real de texto dos PDFs.
 - Não tem IA, pesquisa na web, monitoramento automático ou grafo com relações verificadas.
 - Não implementa 2FA.
 - Não substitui avaliação de segurança, política de privacidade ou revisão jurídica.
-- O SQLite é apropriado para desenvolvimento/pequeno protótipo; produção pode exigir PostgreSQL, armazenamento de objetos privado e serviço de processamento isolado.
-- O diretório de uploads é privado por não ser servido como conteúdo estático; ainda é necessário adicionar antivírus/antimalware, inspeção real do conteúdo e regras de retenção antes de aceitar documentos de terceiros.
+- Usa Turso/libSQL remoto para persistência compatível com execução serverless; o aplicativo não depende de arquivos SQLite graváveis no disco da Vercel.
 
 ## HTTPS / SSL
 
@@ -74,10 +72,10 @@ A base não usa Google Analytics, pixels publicitários ou cookies de rastreamen
 
 ## Antes de publicar
 
-- Use PostgreSQL/armazenamento de arquivos privados conforme a escala.
+- Configure `HOST_TURSO` e `TOKEN_TURSO` no ambiente do servidor.
 - Adicione 2FA, recuperação de conta segura e gestão de usuários.
 - Adicione testes automatizados, monitoramento, backups criptografados e restauração testada.
 - Configure logs sem senhas, tokens ou conteúdo sensível.
-- Adicione verificação de malware, limites de upload e pipeline de PDF/OCR isolado.
+- Faça backups do banco e teste a restauração.
 - Faça revisão de segurança e LGPD.
 - Verifique cada afirmação, relação e conclusão jurídica contra fontes primárias, registrando data, URL, trecho e estado processual.
