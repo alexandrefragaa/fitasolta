@@ -38,7 +38,7 @@ if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
 
 const app = express();
 app.disable("x-powered-by");
-if (IS_PRODUCTION && process.env.TRUST_PROXY === "1") app.set("trust proxy", 1);
+if (IS_PRODUCTION) app.set("trust proxy", 1);
 
 
 const TURSO_URL = process.env.HOST_TURSO;
