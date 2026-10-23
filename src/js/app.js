@@ -24,6 +24,14 @@
     loginStatus: $("#login-status"),
     auditPanel: $("#audit-panel"),
     auditList: $("#audit-list"),
+    managePanel: $("#manage-panel"),
+    entityForm: $("#entity-form"),
+    entityFormStatus: $("#entity-form-status"),
+    relationshipForm: $("#relationship-form"),
+    relationshipFormStatus: $("#relationship-form-status"),
+    relationshipSource: $("#relationship-source"),
+    relationshipTarget: $("#relationship-target"),
+    sourcesList: $("#sources-list"),
     logoutButton: $("#logout-button"),
 
     search: $("#search"),
@@ -298,6 +306,9 @@
     if (elements.auditPanel) {
       elements.auditPanel.hidden = !state.isAdmin;
     }
+    if (elements.managePanel) {
+      elements.managePanel.hidden = !state.isAdmin;
+    }
 
     if (elements.adminPassword) {
       elements.adminPassword.value = "";
@@ -496,6 +507,8 @@
         : [];
 
       renderGraph();
+      renderSources();
+      updateRelationshipChoices();
 
       if (state.selectedEntityId) {
         const selected = state.entities.find(
@@ -692,6 +705,102 @@
     }
 
     elements.graph.append(relationHeading, relationsContainer);
+  }
+
+  function renderSources() {
+    if (!elements.sourcesList) return;
+    elements.sourcesList.replaceChildren();
+    const sources = [];
+    for (const entity of state.entities) {
+      if (entity.source_url) sources.push({
+        title: entity.name || "Fonte vinculada",
+        url: entity.source_url,
+        date: entity.source_date,
+        status: entity.evidence_status,
+        context: entity.description
+      });
+    }
+    for (const relation of state.relationships) {
+      if (relation.source_url) sources.push({
+        title: relation.label || "Fonte de conexão",
+        url: relation.source_url,
+        date: relation.source_date,
+        status: relation.evidence_status,
+        context: relation.description
+      });
+    }
+    if (!sources.length) {
+      elements.sourcesList.appendChild(createMessage(
+        "Nenhuma fonte cadastrada ainda. Entre na Área administrativa e adicione entidades ou conexões com um link de fonte."
+      ));
+      return;
+    }
+    sources.sort((a, b) => String(a.title).localeCompare(String(b.title), "pt-BR"));
+    for (const source of sources) {
+      const article = createElement("article", "source-item");
+      const title = createElement("h3", "", source.title);
+      const link = createElement("a", "", source.url);
+      link.href = source.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      article.append(title, link);
+      if (source.context) article.appendChild(createElement("p", "muted", source.context));
+      const metadata = [source.date ? formatDate(source.date) : "", readableStatus(source.status)].filter(Boolean).join(" · ");
+      if (metadata) article.appendChild(createElement("p", "muted", metadata));
+      elements.sourcesList.appendChild(article);
+    }
+  }
+
+  function updateRelationshipChoices() {
+    for (const select of [elements.relationshipSource, elements.relationshipTarget]) {
+      if (!select) continue;
+      const previous = select.value;
+      select.replaceChildren();
+      select.appendChild(new Option("Selecione uma entidade…", ""));
+      for (const entity of state.entities) {
+        select.appendChild(new Option(`${entity.name} (${readableType(entity.type)})`, entity.id));
+      }
+      if (state.entities.some((entity) => entity.id === previous)) select.value = previous;
+    }
+  }
+
+  async function handleEntitySubmit(event) {
+    event.preventDefault();
+    if (!state.isAdmin || !elements.entityForm) return;
+    const button = elements.entityForm.querySelector('button[type="submit"]');
+    setButtonLoading(button, true, "Salvando…");
+    setStatus(elements.entityFormStatus, "");
+    const form = new FormData(elements.entityForm);
+    const payload = Object.fromEntries(form.entries());
+    try {
+      await apiFetch("/entities", { method: "POST", body: payload });
+      elements.entityForm.reset();
+      await loadGraph();
+      setStatus(elements.entityFormStatus, "Registro adicionado ao mural e às fontes, quando houver link.");
+    } catch (error) {
+      setStatus(elements.entityFormStatus, error.message || "Não foi possível salvar o registro.", true);
+    } finally {
+      setButtonLoading(button, false);
+    }
+  }
+
+  async function handleRelationshipSubmit(event) {
+    event.preventDefault();
+    if (!state.isAdmin || !elements.relationshipForm) return;
+    const button = elements.relationshipForm.querySelector('button[type="submit"]');
+    setButtonLoading(button, true, "Salvando…");
+    setStatus(elements.relationshipFormStatus, "");
+    const payload = Object.fromEntries(new FormData(elements.relationshipForm).entries());
+    try {
+      await apiFetch("/relationships", { method: "POST", body: payload });
+      elements.relationshipForm.reset();
+      await loadGraph();
+      setStatus(elements.relationshipFormStatus, "Conexão adicionada ao mural e à lista de fontes, quando houver link.");
+    } catch (error) {
+      setStatus(elements.relationshipFormStatus, error.message || "Não foi possível salvar a conexão.", true);
+    } finally {
+      setButtonLoading(button, false);
+    }
   }
 
   function renderEmptyDetails() {
@@ -923,6 +1032,8 @@
     });
 
     elements.loginForm?.addEventListener("submit", handleLogin);
+    elements.entityForm?.addEventListener("submit", handleEntitySubmit);
+    elements.relationshipForm?.addEventListener("submit", handleRelationshipSubmit);
     elements.logoutButton?.addEventListener("click", handleLogout);
     elements.refreshGraph?.addEventListener("click", loadGraph);
     elements.searchButton?.addEventListener("click", applySearch);
