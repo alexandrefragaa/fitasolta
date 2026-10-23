@@ -444,7 +444,7 @@ app.post("/api/admin/investigate-link", requireCsrf, requireAdmin, asyncHandler(
   }
   if (!pageResponse.ok) return res.status(422).json({ error: `A fonte respondeu HTTP ${pageResponse.status}. Tente outro link público.` });
   const contentType = pageResponse.headers.get("content-type") || "";
-  if (!/text\\/html|application\\/xhtml\\+xml|text\\/plain/i.test(contentType)) {
+  if (!/text\/html|application\/xhtml\+xml|text\/plain/i.test(contentType)) {
     return res.status(415).json({ error: "Esse link não oferece uma página HTML/texto legível. Use a página pública da fonte; o site não recebe PDFs." });
   }
   const html = (await pageResponse.text()).slice(0, 1200000);
