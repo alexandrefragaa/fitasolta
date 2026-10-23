@@ -684,6 +684,34 @@ app.delete("/api/relationships/:id", requireCsrf, requireAdmin, asyncHandler(asy
   res.json({ ok: true });
 }));
 
+/* Fontes externas: URLs distintas referenciadas por entidades e relações. */
+app.get("/api/sources", asyncHandler(async (req, res) => {
+  try {
+    const rows = await db.prepare(`
+      SELECT source_url AS url, MAX(name) AS title,
+             MAX(description) AS description, COUNT(*) AS references
+      FROM (
+        SELECT source_url, name, description FROM entities WHERE source_url <> ''
+        UNION ALL
+        SELECT source_url, label AS name, description FROM relationships WHERE source_url <> ''
+      )
+      GROUP BY source_url
+      ORDER BY url ASC
+      LIMIT 500
+    `).all();
+    const sources = rows.map((row) => ({
+      url: row.url,
+      title: row.title || row.url,
+      description: row.description || "",
+      references: Number(row.references || 0)
+    }));
+    res.set("Cache-Control", "no-store").json({ sources });
+  } catch (error) {
+    console.error("Erro ao consultar fontes externas.");
+    res.status(500).json({ error: "Não foi possível carregar as fontes externas." });
+  }
+}));
+
 /* Fontes externas são registradas por URL, sem armazenar arquivos no servidor. */
 
 app.get("/api/admin/audit", requireAdmin, asyncHandler(async (req, res) => {
