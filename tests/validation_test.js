@@ -17,7 +17,8 @@ test("tokensMatch aceita igualdade e rejeita tamanhos diferentes", () => {
   assert.equal(tokensMatch("abc", "abcd"), false);
   assert.equal(tokensMatch(undefined, "abc"), false);
   assert.equal(tokensMatch("abc", undefined), false);
-  assert.equal(tokensMatch("", ""), true);
+  // Tokens vazios devem ser rejeitados, inclusive quando ambos são vazios.
+  assert.equal(tokensMatch("", ""), false);
 });
 
 test("a validação de PDF exige a assinatura inicial %PDF-", () => {
