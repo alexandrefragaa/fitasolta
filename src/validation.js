@@ -185,33 +185,3 @@ export function normalizeHttpUrl(value) {
   }
 }
 
-
- *
- * Remove separadores de diretório e caracteres de controle.
- * Não deve ser usado como nome interno de armazenamento.
- *
- * O servidor usa um UUID para o nome real do PDF armazenado.
- */
-export function sanitizeOriginalFilename(value) {
-  if (typeof value !== "string") {
-    return "documento.pdf";
-  }
-
-  let filename = value
-    .replace(/[\\/]/g, "_")
-    .replace(/[\u0000-\u001F\u007F]/g, "")
-    .replace(/[<>:"|?*]/g, "_")
-    .trim();
-
-  filename = filename.slice(0, 180);
-
-  if (
-    filename === "" ||
-    filename === "." ||
-    filename === ".."
-  ) {
-    return "documento.pdf";
-  }
-
-  return filename;
-}
