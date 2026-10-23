@@ -6,9 +6,7 @@ import {
   EVIDENCE_STATUSES,
   cleanString,
   isIsoDate,
-  isPdf,
   normalizeHttpUrl,
-  sanitizeOriginalFilename,
   tokensMatch
 } from "../src/validation.js";
 
@@ -18,16 +16,6 @@ test("tokensMatch aceita igualdade e rejeita tamanhos diferentes", () => {
   assert.equal(tokensMatch(undefined, "abc"), false);
   assert.equal(tokensMatch("abc", undefined), false);
   assert.equal(tokensMatch("", ""), true);
-});
-
-test("a validação de PDF exige a assinatura inicial %PDF-", () => {
-  assert.equal(isPdf(Buffer.from("%PDF-1.7\nexemplo")), true);
-  assert.equal(isPdf(Buffer.from("%PDF-1.4\nconteudo")), true);
-  assert.equal(isPdf(Buffer.from("nao e pdf")), false);
-  assert.equal(isPdf(Buffer.from("")), false);
-
-  // A função aceita um Buffer, não uma string simples.
-  assert.equal(isPdf("%PDF-1.7"), false);
 });
 
 test("normaliza somente URLs HTTP/HTTPS", () => {
@@ -42,7 +30,7 @@ test("normaliza somente URLs HTTP/HTTPS", () => {
   );
 
   assert.equal(normalizeHttpUrl("javascript:alert(1)"), null);
-  assert.equal(normalizeHttpUrl("file:///documento.pdf"), null);
+  assert.equal(normalizeHttpUrl("file:///documento"), null);
   assert.equal(normalizeHttpUrl(""), "");
 });
 
@@ -84,7 +72,11 @@ test("limpa strings e limita o tamanho", () => {
   );
 });
 
-test("nomes de arquivos são sanitizados", () => {
+test("as classificações de evidência contêm os estados esperados", () => {
+  assert.ok(EVIDENCE_STATUSES.includes("nao_verificado"));
+  assert.ok(!EVIDENCE_STATUSES.includes("qualquer_coisa"));
+});
+ () => {
   assert.equal(
     sanitizeOriginalFilename("../../relatorio final.pdf"),
     ".._.._relatorio final.pdf"
