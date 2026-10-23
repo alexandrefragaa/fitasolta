@@ -378,6 +378,44 @@
 
       <ol id="audit-list" class="audit-list"></ol>
     </section>
+
+    <section
+      id="source-queue-panel"
+      aria-labelledby="source-queue-heading"
+      hidden
+    >
+      <div class="section-heading">
+        <div>
+          <h3 id="source-queue-heading">Fontes coletadas (Turso)</h3>
+          <p class="muted">Lista somente para consulta. O título e o resumo são metadados de pesquisa; confira a fonte original antes de concluir algo.</p>
+        </div>
+        <button
+          id="refresh-source-queue"
+          class="button button-outline"
+          type="button"
+        >
+          Atualizar fontes
+        </button>
+      </div>
+
+      <p
+        id="source-queue-status"
+        class="status"
+        role="status"
+        aria-live="polite"
+      ></p>
+
+      <label class="sr-only" for="source-queue-search">Filtrar fontes</label>
+      <input
+        id="source-queue-search"
+        type="search"
+        placeholder="Filtrar por título, URL ou resumo…"
+        autocomplete="off"
+      >
+
+      <ul id="source-queue-list" class="source-queue-list"></ul>
+    </section>
+
   </dialog>
 
   <!-- Aviso sobre o cookie essencial -->
