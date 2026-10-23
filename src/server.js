@@ -1,23 +1,18 @@
 import "dotenv/config";
 import express from "express";
 import session from "express-session";
-import connectSqlite3 from "connect-sqlite3";
-import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import multer from "multer";
 import crypto from "node:crypto";
-import fs from "node:fs";
 import path from "node:path";
+import { createClient } from "@libsql/client";
 import { fileURLToPath } from "node:url";
 import {
   EVIDENCE_STATUSES,
   cleanString,
   isIsoDate,
-  isPdf,
   normalizeHttpUrl,
-  sanitizeOriginalFilename,
   tokensMatch
 } from "./validation.js";
 
@@ -25,12 +20,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 const publicDir = path.join(rootDir, "public");
-const dataDir = path.join(rootDir, "data");
-const uploadDir = path.join(rootDir, "private_uploads");
-
-fs.mkdirSync(dataDir, { recursive: true });
-fs.mkdirSync(uploadDir, { recursive: true, mode: 0o700 });
-
 const PORT = Number.parseInt(process.env.PORT || "3333", 10);
 const NODE_ENV = process.env.NODE_ENV || "development";
 const IS_PRODUCTION = NODE_ENV === "production";
@@ -51,122 +40,159 @@ const app = express();
 app.disable("x-powered-by");
 if (IS_PRODUCTION && process.env.TRUST_PROXY === "1") app.set("trust proxy", 1);
 
-const SQLiteStore = connectSqlite3(session);
-const db = new Database(path.join(dataDir, "tribunal.sqlite"));
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
-db.pragma("busy_timeout = 5000");
 
-/* Cria as tabelas se não existirem. As migrações abaixo preservam tabelas existentes. */
-db.exec(`
-  CREATE TABLE IF NOT EXISTS entities (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    type TEXT NOT NULL DEFAULT 'other',
-    description TEXT NOT NULL DEFAULT '',
-    source_url TEXT NOT NULL DEFAULT '',
-    source_date TEXT NOT NULL DEFAULT '',
-    evidence_status TEXT NOT NULL DEFAULT 'nao_verificado',
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
+const TURSO_URL = process.env.HOST_TURSO;
+const TURSO_TOKEN = process.env.TOKEN_TURSO;
 
-  CREATE TABLE IF NOT EXISTS relationships (
-    id TEXT PRIMARY KEY,
-    source_id TEXT NOT NULL,
-    target_id TEXT NOT NULL,
-    label TEXT NOT NULL DEFAULT '',
-    relation_type TEXT NOT NULL DEFAULT '',
-    description TEXT NOT NULL DEFAULT '',
-    source_url TEXT NOT NULL DEFAULT '',
-    source_date TEXT NOT NULL DEFAULT '',
-    evidence_status TEXT NOT NULL DEFAULT 'nao_verificado',
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (source_id) REFERENCES entities(id) ON DELETE CASCADE,
-    FOREIGN KEY (target_id) REFERENCES entities(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS audit_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    action TEXT NOT NULL,
-    target_type TEXT NOT NULL DEFAULT '',
-    target_id TEXT NOT NULL DEFAULT '',
-    ip_hash TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS documents (
-    id TEXT PRIMARY KEY,
-    stored_name TEXT NOT NULL,
-    original_name TEXT NOT NULL,
-    mime_type TEXT NOT NULL DEFAULT 'application/pdf',
-    size_bytes INTEGER NOT NULL DEFAULT 0,
-    uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-`);
-
-function ensureColumn(table, column, definition) {
-  const existing = db.pragma(`table_info(${table})`).some((entry) => entry.name === column);
-  if (!existing) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+if (!TURSO_URL || !TURSO_TOKEN) {
+  throw new Error("Configure HOST_TURSO e TOKEN_TURSO nas variáveis de ambiente.");
 }
 
-// Migrações aditivas para acomodar a estrutura anterior sem apagar os dados existentes.
-const migrations = {
-  entities: {
-    type: "TEXT NOT NULL DEFAULT 'other'",
-    description: "TEXT NOT NULL DEFAULT ''",
-    source_url: "TEXT NOT NULL DEFAULT ''",
-    source_date: "TEXT NOT NULL DEFAULT ''",
-    evidence_status: "TEXT NOT NULL DEFAULT 'nao_verificado'",
-    created_at: "TEXT",
-    updated_at: "TEXT"
+const libsqlClient = createClient({
+  url: TURSO_URL,
+  authToken: TURSO_TOKEN
+});
+
+// Compatibilidade assíncrona com os métodos usados no restante do servidor.
+const db = {
+  prepare(sql) {
+    return {
+      async all(...args) {
+        const result = await libsqlClient.execute({ sql, args });
+        return result.rows.map((row) => ({ ...row }));
+      },
+      async get(...args) {
+        const result = await libsqlClient.execute({ sql, args });
+        return result.rows.length ? { ...result.rows[0] } : undefined;
+      },
+      async run(...args) {
+        const result = await libsqlClient.execute({ sql, args });
+        return {
+          changes: Number(result.rowsAffected || 0),
+          lastInsertRowid: result.lastInsertRowid
+        };
+      }
+    };
   },
-  relationships: {
-    source_id: "TEXT NOT NULL DEFAULT ''",
-    target_id: "TEXT NOT NULL DEFAULT ''",
-    label: "TEXT NOT NULL DEFAULT ''",
-    relation_type: "TEXT NOT NULL DEFAULT ''",
-    description: "TEXT NOT NULL DEFAULT ''",
-    source_url: "TEXT NOT NULL DEFAULT ''",
-    source_date: "TEXT NOT NULL DEFAULT ''",
-    evidence_status: "TEXT NOT NULL DEFAULT 'nao_verificado'",
-    created_at: "TEXT",
-    updated_at: "TEXT"
+  exec(sql) {
+    return libsqlClient.executeMultiple(sql);
   },
-  audit_events: {
-    action: "TEXT NOT NULL DEFAULT 'unknown'",
-    target_type: "TEXT NOT NULL DEFAULT ''",
-    target_id: "TEXT NOT NULL DEFAULT ''",
-    ip_hash: "TEXT NOT NULL DEFAULT ''",
-    created_at: "TEXT"
+  batch(statements) {
+    return libsqlClient.batch(statements, "write");
   },
-  documents: {
-    stored_name: "TEXT NOT NULL DEFAULT ''",
-    original_name: "TEXT NOT NULL DEFAULT 'documento.pdf'",
-    mime_type: "TEXT NOT NULL DEFAULT 'application/pdf'",
-    size_bytes: "INTEGER NOT NULL DEFAULT 0",
-    uploaded_at: "TEXT"
+  close() {
+    libsqlClient.close();
   }
 };
-for (const [table, columns] of Object.entries(migrations)) {
-  for (const [column, definition] of Object.entries(columns)) ensureColumn(table, column, definition);
+
+async function initializeDatabase() {
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS entities (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'other',
+      description TEXT NOT NULL DEFAULT '',
+      source_url TEXT NOT NULL DEFAULT '',
+      source_date TEXT NOT NULL DEFAULT '',
+      evidence_status TEXT NOT NULL DEFAULT 'nao_verificado',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS relationships (
+      id TEXT PRIMARY KEY,
+      source_id TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      label TEXT NOT NULL DEFAULT '',
+      relation_type TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      source_url TEXT NOT NULL DEFAULT '',
+      source_date TEXT NOT NULL DEFAULT '',
+      evidence_status TEXT NOT NULL DEFAULT 'nao_verificado',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (source_id) REFERENCES entities(id) ON DELETE CASCADE,
+      FOREIGN KEY (target_id) REFERENCES entities(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      action TEXT NOT NULL,
+      target_type TEXT NOT NULL DEFAULT '',
+      target_id TEXT NOT NULL DEFAULT '',
+      ip_hash TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      sid TEXT PRIMARY KEY,
+      sess TEXT NOT NULL,
+      expires INTEGER NOT NULL
+    );
+  `);
+
+  async function ensureColumn(table, column, definition) {
+    const existing = await db.prepare(`PRAGMA table_info(${table})`).all();
+    if (!existing.some((entry) => entry.name === column)) {
+      await db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
+  }
+
+  // Migrações aditivas para preservar esquemas já existentes.
+  const migrations = {
+    entities: {
+      type: "TEXT NOT NULL DEFAULT 'other'",
+      description: "TEXT NOT NULL DEFAULT ''",
+      source_url: "TEXT NOT NULL DEFAULT ''",
+      source_date: "TEXT NOT NULL DEFAULT ''",
+      evidence_status: "TEXT NOT NULL DEFAULT 'nao_verificado'",
+      created_at: "TEXT",
+      updated_at: "TEXT"
+    },
+    relationships: {
+      source_id: "TEXT NOT NULL DEFAULT ''",
+      target_id: "TEXT NOT NULL DEFAULT ''",
+      label: "TEXT NOT NULL DEFAULT ''",
+      relation_type: "TEXT NOT NULL DEFAULT ''",
+      description: "TEXT NOT NULL DEFAULT ''",
+      source_url: "TEXT NOT NULL DEFAULT ''",
+      source_date: "TEXT NOT NULL DEFAULT ''",
+      evidence_status: "TEXT NOT NULL DEFAULT 'nao_verificado'",
+      created_at: "TEXT",
+      updated_at: "TEXT"
+    },
+    audit_events: {
+      action: "TEXT NOT NULL DEFAULT 'unknown'",
+      target_type: "TEXT NOT NULL DEFAULT ''",
+      target_id: "TEXT NOT NULL DEFAULT ''",
+      ip_hash: "TEXT NOT NULL DEFAULT ''",
+      created_at: "TEXT"
+    }
+  };
+
+  for (const [table, columns] of Object.entries(migrations)) {
+    for (const [column, definition] of Object.entries(columns)) {
+      await ensureColumn(table, column, definition);
+    }
+  }
+
+  await db.exec(`
+    UPDATE entities SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP);
+    UPDATE entities SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP);
+    UPDATE relationships SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP);
+    UPDATE relationships SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP);
+    UPDATE relationships SET label = relation_type WHERE label = '' AND relation_type <> '';
+    UPDATE relationships SET relation_type = label WHERE relation_type = '' AND label <> '';
+    UPDATE audit_events SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP);
+    CREATE INDEX IF NOT EXISTS idx_relationships_source ON relationships(source_id);
+    CREATE INDEX IF NOT EXISTS idx_relationships_target ON relationships(target_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires);
+  `);
 }
 
-db.exec(`
-  UPDATE entities SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP);
-  UPDATE entities SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP);
-  UPDATE relationships SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP);
-  UPDATE relationships SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP);
-  UPDATE relationships SET label = relation_type WHERE label = '' AND relation_type <> '';
-  UPDATE relationships SET relation_type = label WHERE relation_type = '' AND label <> '';
-  UPDATE audit_events SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP);
-  UPDATE documents SET uploaded_at = COALESCE(uploaded_at, CURRENT_TIMESTAMP);
-  CREATE INDEX IF NOT EXISTS idx_relationships_source ON relationships(source_id);
-  CREATE INDEX IF NOT EXISTS idx_relationships_target ON relationships(target_id);
-  CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events(created_at);
-  CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
-`);
+await initializeDatabase();
 
 /* Auditoria: registra um hash do IP, não o IP em texto aberto. */
 function getIpHash(ip) {
@@ -181,11 +207,54 @@ const insertAudit = db.prepare(`
   VALUES (?, ?, ?, ?)
 `);
 
-function audit(req, action, targetType = "", targetId = "") {
+async function audit(req, action, targetType = "", targetId = "") {
   try {
-    insertAudit.run(action, targetType, String(targetId || ""), getIpHash(req.ip));
-  } catch (error) {
+    await insertAudit.run(action, targetType, String(targetId || ""), getIpHash(req.ip));
+  } catch {
     console.error("Não foi possível registrar o evento de auditoria.");
+  }
+}
+
+class TursoSessionStore extends session.Store {
+  get(sid, callback) {
+    db.prepare("SELECT sess, expires FROM sessions WHERE sid = ?").get(sid)
+      .then(async (row) => {
+        if (!row || Number(row.expires) <= Date.now()) {
+          if (row) await db.prepare("DELETE FROM sessions WHERE sid = ?").run(sid);
+          callback(null, null);
+          return;
+        }
+        try {
+          callback(null, JSON.parse(row.sess));
+        } catch (error) {
+          callback(error);
+        }
+      })
+      .catch((error) => callback(error));
+  }
+
+  set(sid, sess, callback) {
+    const cookieExpiry = sess.cookie?.expires
+      ? new Date(sess.cookie.expires).getTime()
+      : Date.now() + Number(sess.cookie?.maxAge || 30 * 60 * 1000);
+    const expires = Number.isFinite(cookieExpiry) ? cookieExpiry : Date.now() + 30 * 60 * 1000;
+
+    db.prepare(`
+      INSERT INTO sessions (sid, sess, expires) VALUES (?, ?, ?)
+      ON CONFLICT(sid) DO UPDATE SET sess = excluded.sess, expires = excluded.expires
+    `).run(sid, JSON.stringify(sess), expires)
+      .then(() => callback())
+      .catch((error) => callback(error));
+  }
+
+  touch(sid, sess, callback) {
+    this.set(sid, sess, callback);
+  }
+
+  destroy(sid, callback) {
+    db.prepare("DELETE FROM sessions WHERE sid = ?").run(sid)
+      .then(() => callback())
+      .catch((error) => callback(error));
   }
 }
 
@@ -212,7 +281,7 @@ app.use(express.urlencoded({ extended: false, limit: "20kb" }));
 app.use(session({
   name: "fitasolta.sid",
   secret: SESSION_SECRET,
-  store: new SQLiteStore({ db: "sessions.sqlite", dir: dataDir, concurrentDB: true }),
+  store: new TursoSessionStore(),
   resave: false,
   saveUninitialized: false,
   rolling: true,
@@ -244,6 +313,8 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+const asyncHandler = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 8,
@@ -251,22 +322,14 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Muitas tentativas de login. Aguarde antes de tentar novamente." }
 });
-const uploadLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Muitos envios de documentos. Aguarde antes de tentar novamente." }
-});
-
-app.get("/api/health", (req, res) => {
+app.get("/api/health", asyncHandler(async (req, res) => {
   try {
-    db.prepare("SELECT 1").get();
+    await db.prepare("SELECT 1").get();
     res.set("Cache-Control", "no-store").json({ ok: true, app: "FitaSolta", database: "connected" });
   } catch {
     res.status(503).json({ ok: false, error: "Banco de dados indisponível." });
   }
-});
+}));
 
 app.get("/api/csrf", (req, res, next) => {
   if (!req.session.csrfToken) req.session.csrfToken = createCsrfToken();
@@ -280,45 +343,45 @@ app.get("/api/auth/me", (req, res) => {
   res.set("Cache-Control", "no-store").json({ isAdmin: req.session?.isAdmin === true });
 });
 
-app.post("/api/auth/login", loginLimiter, requireCsrf, (req, res, next) => {
+app.post("/api/auth/login", loginLimiter, requireCsrf, asyncHandler(async (req, res) => {
   const password = req.body?.password;
   if (typeof password !== "string" || password.length < 12 || password.length > 200) {
-    audit(req, "login_invalid_input", "admin");
+    await audit(req, "login_invalid_input", "admin");
     return res.status(400).json({ error: "Credenciais inválidas." });
   }
 
-  bcrypt.compare(password, ADMIN_PASSWORD_HASH).then((validPassword) => {
-    if (!validPassword) {
-      audit(req, "login_failed", "admin");
-      return res.status(401).json({ error: "Credenciais inválidas." });
-    }
+  const validPassword = await bcrypt.compare(password, ADMIN_PASSWORD_HASH);
+  if (!validPassword) {
+    await audit(req, "login_failed", "admin");
+    return res.status(401).json({ error: "Credenciais inválidas." });
+  }
 
-    req.session.regenerate((regenerateError) => {
-      if (regenerateError) return next(regenerateError);
-      req.session.isAdmin = true;
-      req.session.csrfToken = createCsrfToken();
-      req.session.save((saveError) => {
-        if (saveError) return next(saveError);
-        audit(req, "login_success", "admin");
-        res.set("Cache-Control", "no-store").json({ ok: true, csrfToken: req.session.csrfToken });
-      });
-    });
-  }).catch(next);
-});
-
-app.post("/api/auth/logout", requireCsrf, requireAdmin, (req, res, next) => {
-  audit(req, "logout", "admin");
-  req.session.destroy((error) => {
-    if (error) return next(error);
-    res.clearCookie("fitasolta.sid", {
-      httpOnly: true,
-      secure: IS_PRODUCTION,
-      sameSite: "strict",
-      path: "/"
-    });
-    res.set("Cache-Control", "no-store").json({ ok: true, message: "Sessão encerrada." });
+  await new Promise((resolve, reject) => {
+    req.session.regenerate((error) => error ? reject(error) : resolve());
   });
-});
+  req.session.isAdmin = true;
+  req.session.csrfToken = createCsrfToken();
+  await new Promise((resolve, reject) => {
+    req.session.save((error) => error ? reject(error) : resolve());
+  });
+
+  await audit(req, "login_success", "admin");
+  res.set("Cache-Control", "no-store").json({ ok: true, csrfToken: req.session.csrfToken });
+}));
+
+app.post("/api/auth/logout", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
+  await audit(req, "logout", "admin");
+  await new Promise((resolve, reject) => {
+    req.session.destroy((error) => error ? reject(error) : resolve());
+  });
+  res.clearCookie("fitasolta.sid", {
+    httpOnly: true,
+    secure: IS_PRODUCTION,
+    sameSite: "strict",
+    path: "/"
+  });
+  res.set("Cache-Control", "no-store").json({ ok: true, message: "Sessão encerrada." });
+}));
 
 /* Entidades */
 const selectEntities = db.prepare(`
@@ -349,45 +412,47 @@ function parseEntity(body) {
   return { value: { name, type, description, source_url: sourceUrl, source_date: sourceDate || "", evidence_status: evidenceStatus } };
 }
 
-app.get("/api/entities", (req, res) => {
+app.get("/api/entities", asyncHandler(async (req, res) => {
   try {
-    res.set("Cache-Control", "no-store").json({ entities: selectEntities.all() });
+    const entities = await selectEntities.all();
+    res.set("Cache-Control", "no-store").json({ entities });
   } catch (error) {
     console.error("Erro ao consultar entidades.");
     res.status(500).json({ error: "Não foi possível carregar as entidades." });
   }
-});
+}));
 
-app.post("/api/entities", requireCsrf, requireAdmin, (req, res) => {
+app.post("/api/entities", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
   const parsed = parseEntity(req.body);
   if (parsed.error) return res.status(400).json({ error: parsed.error });
   const id = crypto.randomUUID();
   const entity = parsed.value;
-  insertEntity.run(id, entity.name, entity.type, entity.description, entity.source_url, entity.source_date, entity.evidence_status);
-  audit(req, "entity_created", "entity", id);
+  await insertEntity.run(id, entity.name, entity.type, entity.description, entity.source_url, entity.source_date, entity.evidence_status);
+  await audit(req, "entity_created", "entity", id);
   res.status(201).json({ ok: true, entity: { id, ...entity } });
-});
+}));
 
-app.put("/api/entities/:id", requireCsrf, requireAdmin, (req, res) => {
+app.put("/api/entities/:id", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
   const parsed = parseEntity(req.body);
   if (parsed.error) return res.status(400).json({ error: parsed.error });
   const entity = parsed.value;
-  const result = updateEntity.run(entity.name, entity.type, entity.description, entity.source_url, entity.source_date, entity.evidence_status, req.params.id);
+  const result = await updateEntity.run(entity.name, entity.type, entity.description, entity.source_url, entity.source_date, entity.evidence_status, req.params.id);
   if (!result.changes) return res.status(404).json({ error: "Entidade não encontrada." });
-  audit(req, "entity_updated", "entity", req.params.id);
+  await audit(req, "entity_updated", "entity", req.params.id);
   res.json({ ok: true, entity: { id: req.params.id, ...entity } });
-});
+}));
 
-app.delete("/api/entities/:id", requireCsrf, requireAdmin, (req, res) => {
-  const transaction = db.transaction((id) => {
-    db.prepare("DELETE FROM relationships WHERE source_id = ? OR target_id = ?").run(id, id);
-    return db.prepare("DELETE FROM entities WHERE id = ?").run(id);
-  });
-  const result = transaction(req.params.id);
-  if (!result.changes) return res.status(404).json({ error: "Entidade não encontrada." });
-  audit(req, "entity_deleted", "entity", req.params.id);
+app.delete("/api/entities/:id", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
+  const id = req.params.id;
+  const results = await db.batch([
+    { sql: "DELETE FROM relationships WHERE source_id = ? OR target_id = ?", args: [id, id] },
+    { sql: "DELETE FROM entities WHERE id = ?", args: [id] }
+  ]);
+  const result = results[1];
+  if (!Number(result.rowsAffected || 0)) return res.status(404).json({ error: "Entidade não encontrada." });
+  await audit(req, "entity_deleted", "entity", id);
   res.json({ ok: true });
-});
+}));
 
 /* Relações */
 const selectRelationships = db.prepare(`
@@ -411,144 +476,67 @@ function parseRelationship(body) {
   return { value: { source_id: sourceId, target_id: targetId, label, relation_type: label, description, source_url: sourceUrl, source_date: sourceDate || "", evidence_status: evidenceStatus } };
 }
 
-app.get("/api/relationships", (req, res) => {
+app.get("/api/relationships", asyncHandler(async (req, res) => {
   try {
-    res.set("Cache-Control", "no-store").json({ relationships: selectRelationships.all() });
+    const relationships = await selectRelationships.all();
+    res.set("Cache-Control", "no-store").json({ relationships });
   } catch (error) {
     console.error("Erro ao consultar relações.");
     res.status(500).json({ error: "Não foi possível carregar as relações." });
   }
-});
+}));
 
-app.post("/api/relationships", requireCsrf, requireAdmin, (req, res) => {
+app.post("/api/relationships", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
   const parsed = parseRelationship(req.body);
   if (parsed.error) return res.status(400).json({ error: parsed.error });
   const relationship = parsed.value;
-  const source = db.prepare("SELECT id FROM entities WHERE id = ?").get(relationship.source_id);
-  const target = db.prepare("SELECT id FROM entities WHERE id = ?").get(relationship.target_id);
+  const source = await db.prepare("SELECT id FROM entities WHERE id = ?").get(relationship.source_id);
+  const target = await db.prepare("SELECT id FROM entities WHERE id = ?").get(relationship.target_id);
   if (!source || !target) return res.status(400).json({ error: "As duas entidades precisam existir antes de criar a relação." });
 
   const id = crypto.randomUUID();
-  db.prepare(`INSERT INTO relationships (id, source_id, target_id, label, relation_type, description, source_url, source_date, evidence_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+  await db.prepare(`INSERT INTO relationships (id, source_id, target_id, label, relation_type, description, source_url, source_date, evidence_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     id, relationship.source_id, relationship.target_id, relationship.label, relationship.relation_type, relationship.description, relationship.source_url, relationship.source_date, relationship.evidence_status
   );
-  audit(req, "relationship_created", "relationship", id);
+  await audit(req, "relationship_created", "relationship", id);
   res.status(201).json({ ok: true, relationship: { id, ...relationship } });
-});
+}));
 
-app.put("/api/relationships/:id", requireCsrf, requireAdmin, (req, res) => {
+app.put("/api/relationships/:id", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
   const parsed = parseRelationship(req.body);
   if (parsed.error) return res.status(400).json({ error: parsed.error });
   const relationship = parsed.value;
-  const source = db.prepare("SELECT id FROM entities WHERE id = ?").get(relationship.source_id);
-  const target = db.prepare("SELECT id FROM entities WHERE id = ?").get(relationship.target_id);
+  const source = await db.prepare("SELECT id FROM entities WHERE id = ?").get(relationship.source_id);
+  const target = await db.prepare("SELECT id FROM entities WHERE id = ?").get(relationship.target_id);
   if (!source || !target) return res.status(400).json({ error: "As duas entidades precisam existir antes de salvar a relação." });
 
-  const result = db.prepare(`UPDATE relationships SET source_id = ?, target_id = ?, label = ?, relation_type = ?, description = ?, source_url = ?, source_date = ?, evidence_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(
+  const result = await db.prepare(`UPDATE relationships SET source_id = ?, target_id = ?, label = ?, relation_type = ?, description = ?, source_url = ?, source_date = ?, evidence_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(
     relationship.source_id, relationship.target_id, relationship.label, relationship.relation_type, relationship.description, relationship.source_url, relationship.source_date, relationship.evidence_status, req.params.id
   );
   if (!result.changes) return res.status(404).json({ error: "Relação não encontrada." });
-  audit(req, "relationship_updated", "relationship", req.params.id);
+  await audit(req, "relationship_updated", "relationship", req.params.id);
   res.json({ ok: true, relationship: { id: req.params.id, ...relationship } });
-});
+}));
 
-app.delete("/api/relationships/:id", requireCsrf, requireAdmin, (req, res) => {
-  const result = db.prepare("DELETE FROM relationships WHERE id = ?").run(req.params.id);
+app.delete("/api/relationships/:id", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
+  const result = await db.prepare("DELETE FROM relationships WHERE id = ?").run(req.params.id);
   if (!result.changes) return res.status(404).json({ error: "Relação não encontrada." });
-  audit(req, "relationship_deleted", "relationship", req.params.id);
+  await audit(req, "relationship_deleted", "relationship", req.params.id);
   res.json({ ok: true });
-});
+}));
 
-/* Documentos privados: upload validado, listado e baixado apenas por administrador. */
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_FILE_SIZE, files: 1, fields: 3, parts: 4 },
-  fileFilter(req, file, callback) {
-    if (path.extname(file.originalname).toLowerCase() !== ".pdf" || file.mimetype !== "application/pdf") {
-      return callback(new Error("Envie somente arquivos PDF."));
-    }
-    callback(null, true);
-  }
-});
+/* Fontes externas são registradas por URL, sem armazenar arquivos no servidor. */
 
-app.get("/api/documents", requireAdmin, (req, res) => {
-  const documents = db.prepare(`SELECT id, original_name, mime_type, size_bytes, uploaded_at FROM documents ORDER BY uploaded_at DESC LIMIT 200`).all();
-  res.set("Cache-Control", "no-store").json({ documents });
-});
-
-app.post("/api/documents", uploadLimiter, requireCsrf, requireAdmin, upload.single("file"), async (req, res, next) => {
-  let storedPath;
+app.get("/api/admin/audit", requireAdmin, asyncHandler(async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: "Selecione um arquivo PDF." });
-    if (!isPdf(req.file.buffer)) {
-      audit(req, "document_rejected", "document");
-      return res.status(400).json({ error: "O conteúdo do arquivo não parece ser um PDF válido." });
-    }
-
-    const id = crypto.randomUUID();
-    const storedName = `${id}.pdf`;
-    const originalName = sanitizeOriginalFilename(req.file.originalname);
-    storedPath = path.join(uploadDir, storedName);
-
-    await fs.promises.writeFile(storedPath, req.file.buffer, { flag: "wx", mode: 0o600 });
-    try {
-      db.prepare(`INSERT INTO documents (id, stored_name, original_name, mime_type, size_bytes) VALUES (?, ?, ?, ?, ?)`).run(
-        id, storedName, originalName, "application/pdf", req.file.size
-      );
-    } catch (databaseError) {
-      await fs.promises.unlink(storedPath).catch(() => {});
-      storedPath = undefined;
-      throw databaseError;
-    }
-
-    audit(req, "document_uploaded", "document", id);
-    res.status(201).json({
-      ok: true,
-      document: { id, originalName, sizeBytes: req.file.size },
-      message: "PDF armazenado em área privada. A extração de texto e a análise automática ainda não estão implementadas."
-    });
-  } catch (error) {
-    if (storedPath) await fs.promises.unlink(storedPath).catch(() => {});
-    next(error);
-  }
-});
-
-app.get("/api/documents/:id/download", requireAdmin, (req, res, next) => {
-  const document = db.prepare("SELECT stored_name, original_name FROM documents WHERE id = ?").get(req.params.id);
-  if (!document) return res.status(404).json({ error: "Documento não encontrado." });
-  if (!/^[0-9a-f-]+\.pdf$/i.test(document.stored_name)) return res.status(500).json({ error: "Nome interno de arquivo inválido." });
-  const filePath = path.join(uploadDir, document.stored_name);
-  res.download(filePath, document.original_name, (error) => {
-    if (error && !res.headersSent) next(error);
-  });
-});
-
-app.delete("/api/documents/:id", requireCsrf, requireAdmin, async (req, res, next) => {
-  try {
-    const document = db.prepare("SELECT stored_name FROM documents WHERE id = ?").get(req.params.id);
-    if (!document) return res.status(404).json({ error: "Documento não encontrado." });
-    db.prepare("DELETE FROM documents WHERE id = ?").run(req.params.id);
-    if (/^[0-9a-f-]+\.pdf$/i.test(document.stored_name)) {
-      await fs.promises.unlink(path.join(uploadDir, document.stored_name)).catch(() => {});
-    }
-    audit(req, "document_deleted", "document", req.params.id);
-    res.json({ ok: true });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.get("/api/admin/audit", requireAdmin, (req, res) => {
-  try {
-    audit(req, "audit_view", "audit_events");
-    const events = db.prepare(`SELECT id, action, target_type, target_id, ip_hash, created_at FROM audit_events ORDER BY id DESC LIMIT 200`).all();
+    await audit(req, "audit_view", "audit_events");
+    const events = await db.prepare(`SELECT id, action, target_type, target_id, ip_hash, created_at FROM audit_events ORDER BY id DESC LIMIT 200`).all();
     res.set("Cache-Control", "no-store").json({ events });
   } catch (error) {
     console.error("Erro ao consultar auditoria.");
     res.status(500).json({ error: "Não foi possível consultar a auditoria." });
   }
-});
+}));
 
 app.use(express.static(publicDir, {
   index: "index.html",
@@ -563,15 +551,6 @@ app.use("/api", (req, res) => {
 
 app.use((error, req, res, next) => {
   if (res.headersSent) return next(error);
-  if (error instanceof multer.MulterError) {
-    const tooLarge = error.code === "LIMIT_FILE_SIZE";
-    return res.status(tooLarge ? 413 : 400).json({
-      error: tooLarge ? "O arquivo ultrapassa o limite de 10 MB." : "Não foi possível receber o arquivo enviado."
-    });
-  }
-  if (error?.message === "Envie somente arquivos PDF.") {
-    return res.status(400).json({ error: error.message });
-  }
   console.error("Erro interno do servidor:", error?.message || "erro desconhecido");
   return res.status(500).json({ error: "Ocorreu um erro interno. Tente novamente." });
 });
