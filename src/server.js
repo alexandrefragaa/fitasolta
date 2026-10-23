@@ -689,7 +689,7 @@ app.get("/api/sources", asyncHandler(async (req, res) => {
   try {
     const rows = await db.prepare(`
       SELECT source_url AS url, MAX(name) AS title,
-             MAX(description) AS description, COUNT(*) AS references
+             MAX(description) AS description, COUNT(*) AS reference_count
       FROM (
         SELECT source_url, name, description FROM entities WHERE source_url <> ''
         UNION ALL
@@ -703,7 +703,7 @@ app.get("/api/sources", asyncHandler(async (req, res) => {
       url: row.url,
       title: row.title || row.url,
       description: row.description || "",
-      references: Number(row.references || 0)
+      references: Number(row.reference_count || 0)
     }));
     res.set("Cache-Control", "no-store").json({ sources });
   } catch (error) {
