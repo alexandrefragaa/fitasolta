@@ -72,6 +72,21 @@ Em `localhost`, use HTTP local para desenvolvimento. Em produção, publique atr
 
 A base não usa Google Analytics, pixels publicitários ou cookies de rastreamento. O cookie de sessão é necessário para login. Antes de adicionar analytics, defina finalidade, dados coletados, retenção, base legal e mecanismo de consentimento aplicável; não carregue rastreadores antes do consentimento quando ele for necessário.
 
+## Integração de fontes do Turso
+
+A área administrativa pode consultar a tabela `source_queue` da base Turso. A conexão é somente de leitura; o banco SQLite local do FitaSolta continua separado.
+
+Configure estas variáveis no ambiente do servidor (por exemplo, em Vercel → Settings → Environment Variables):
+
+```env
+TURSO_DATABASE_URL=libsql://NOME-DA-BASE-ORGANIZACAO.turso.io
+TURSO_AUTH_TOKEN=COLE_AQUI_UM_TOKEN_READ_ONLY
+```
+
+Use o hostname real exibido na página de conexão do banco e gere um token **read-only** para essa base. Não coloque o token no código, no GitHub ou no navegador. Depois de adicionar/alterar as variáveis, faça um novo deploy. Sem as variáveis, o restante do FitaSolta continua funcionando normalmente; apenas a lista de fontes do Turso fica indisponível.
+
+A lista é exibida somente após login administrativo, pode ser filtrada e não altera os registros da fila. Verifique a fonte original antes de usar um resumo como evidência.
+
 ## Antes de publicar
 
 - Use PostgreSQL/armazenamento de arquivos privados conforme a escala.
