@@ -26,6 +26,9 @@
     auditList: $("#audit-list"),
     managePanel: $("#manage-panel"),
     entityForm: $("#entity-form"),
+    investigateForm: $("#investigate-form"),
+    investigateStatus: $("#investigate-status"),
+    investigateResult: $("#investigate-result"),
     entityFormStatus: $("#entity-form-status"),
     relationshipForm: $("#relationship-form"),
     relationshipFormStatus: $("#relationship-form-status"),
@@ -764,6 +767,46 @@
     }
   }
 
+
+  async function handleInvestigateSubmit(event) {
+    event.preventDefault();
+    if (!state.isAdmin || !elements.investigateForm) return;
+    const button = elements.investigateForm.querySelector('button[type="submit"]');
+    const url = new FormData(elements.investigateForm).get("url");
+    setButtonLoading(button, true, "Analisando fonte…");
+    setStatus(elements.investigateStatus, "Lendo a página e mapeando entidades, eventos e conexões. Isso pode levar alguns segundos.");
+    elements.investigateResult?.replaceChildren();
+    try {
+      const result = await apiFetch("/admin/investigate-link", { method: "POST", body: { url } });
+      await loadGraph();
+      setStatus(elements.investigateStatus, "Análise concluída. Os registros encontrados foram salvos no mural.");
+      if (elements.investigateResult) {
+        const heading = createElement("h4", "", result.source?.title || "Fonte analisada");
+        const sourceLink = createElement("a", "", result.source?.url || url);
+        sourceLink.href = result.source?.url || url;
+        sourceLink.target = "_blank";
+        sourceLink.rel = "noopener noreferrer";
+        const summary = createElement("p", "", result.summary || "A análise não encontrou um resumo adicional.");
+        const counts = createElement("p", "muted", `Novas entidades: ${result.entities_added ?? 0} · Novas conexões: ${result.relationships_added ?? 0}`);
+        elements.investigateResult.append(heading, sourceLink, summary, counts);
+        if (Array.isArray(result.timeline) && result.timeline.length) {
+          elements.investigateResult.appendChild(createElement("h4", "", "Linha do tempo extraída"));
+          const list = createElement("ol", "investigation-timeline");
+          for (const item of result.timeline) {
+            const text = [item.date, item.event, item.status].filter(Boolean).join(" — ");
+            list.appendChild(createElement("li", "", text));
+          }
+          elements.investigateResult.appendChild(list);
+        }
+      }
+      elements.investigateForm.reset();
+    } catch (error) {
+      setStatus(elements.investigateStatus, error.message || "Não foi possível analisar esse link.", true);
+    } finally {
+      setButtonLoading(button, false);
+    }
+  }
+
   async function handleEntitySubmit(event) {
     event.preventDefault();
     if (!state.isAdmin || !elements.entityForm) return;
@@ -1033,6 +1076,7 @@
 
     elements.loginForm?.addEventListener("submit", handleLogin);
     elements.entityForm?.addEventListener("submit", handleEntitySubmit);
+    elements.investigateForm?.addEventListener("submit", handleInvestigateSubmit);
     elements.relationshipForm?.addEventListener("submit", handleRelationshipSubmit);
     elements.logoutButton?.addEventListener("click", handleLogout);
     elements.refreshGraph?.addEventListener("click", loadGraph);
