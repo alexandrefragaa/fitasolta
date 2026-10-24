@@ -582,6 +582,7 @@ const loginLimiter = rateLimit({
 });
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const GEMINI_MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite";
+const CRON_SECRET = process.env.CRON_SECRET || "";
 
 // Se um modelo estiver indisponível/sobrecarregado, tenta um segundo modelo estável.
 async function generateGeminiJson(prompt, generationConfig = { temperature: 0.1, responseMimeType: "application/json" }) {
@@ -790,28 +791,10 @@ const processSourcesLimiter = rateLimit({
   message: { error: "Muitas execuções. Aguarde antes de tentar novamente." }
 });
 
-
-app.post("/api/admin/process-sources", processSourcesLimiter, requireCsrf, requireAdmin, async (req, res) => {
-  if (!GEMINI_API_KEY.trim()) return res.status(503).json({ error: "Configure GEMINI_API_KEY nas variáveis de ambiente da Vercel antes de processar fontes." });
-  const retryErrors = req.body?.retryErrors === true;
-  let pending;
-  try {
-    const sourceStatus = retryErrors ? "error" : "pending";
-    pending = (await readTursoSourceQueue()).filter((source) => source.status === sourceStatus).slice(0, 3);
-  } catch {
-    return res.status(502).json({ error: "Não foi possível carregar a fila de fontes do Turso." });
-  }
-  if (!pending.length) {
-    return res.json({
-      ok: true,
-      processed: 0,
-      completed: 0,
-      errors: 0,
-      message: retryErrors ? "Não há fontes com erro para tentar novamente." : "Não há fontes pendentes."
-    });
-  }
+async function processSourceItems(req, sources) {
   const results = [];
-  for (const source of pending) {
+
+  for (const source of sources) {
     try {
       await updateTursoSource(source.id, "processing", source.title, source.summary, "");
       const extracted = await extractSourcePage(source.url);
@@ -823,15 +806,112 @@ app.post("/api/admin/process-sources", processSourcesLimiter, requireCsrf, requi
     } catch (error) {
       const message = String(error?.message || "Falha no processamento").slice(0, 350);
       await updateTursoSource(source.id, "error", source.title, source.summary, message).catch(() => {});
+      console.error("Falha ao processar fonte", String(source.id || "").slice(0, 80), message);
       results.push({ id: source.id, url: source.url, status: "error", error: message });
     }
   }
-  res.set("Cache-Control", "no-store").json({
+
+  return {
     ok: true,
     processed: results.length,
     completed: results.filter((item) => item.status === "completed").length,
     errors: results.filter((item) => item.status === "error").length,
     results
+  };
+}
+
+app.post("/api/admin/process-sources", processSourcesLimiter, requireCsrf, requireAdmin, async (req, res) => {
+  if (!GEMINI_API_KEY.trim()) {
+    return res.status(503).json({ error: "Configure GEMINI_API_KEY nas variáveis de ambiente da Vercel antes de processar fontes." });
+  }
+
+  const retryErrors = req.body?.retryErrors === true;
+  let sources;
+  try {
+    const sourceStatus = retryErrors ? "error" : "pending";
+    sources = (await readTursoSourceQueue()).filter((source) => source.status === sourceStatus).slice(0, 3);
+  } catch {
+    return res.status(502).json({ error: "Não foi possível carregar a fila de fontes do Turso." });
+  }
+
+  if (!sources.length) {
+    return res.json({
+      ok: true,
+      processed: 0,
+      completed: 0,
+      errors: 0,
+      message: retryErrors ? "Não há fontes com erro para tentar novamente." : "Não há fontes pendentes."
+    });
+  }
+
+  const result = await processSourceItems(req, sources);
+  res.set("Cache-Control", "no-store").json(result);
+});
+
+// Vercel Cron chama este endpoint uma vez por dia. O segredo é enviado no
+// cabeçalho Authorization e impede que visitantes disparem processamento pago.
+app.get("/api/cron/process-sources", async (req, res) => {
+  if (!CRON_SECRET || req.get("authorization") !== `Bearer ${CRON_SECRET}`) {
+    return res.status(401).json({ error: "Não autorizado." });
+  }
+  if (!GEMINI_API_KEY.trim()) {
+    return res.status(503).json({ error: "GEMINI_API_KEY não está configurada." });
+  }
+
+  let queue;
+  try {
+    queue = await readTursoSourceQueue();
+  } catch (error) {
+    console.error("Cron não conseguiu carregar a fila do Turso:", error?.code || error?.name || "Error");
+    return res.status(502).json({ error: "Não foi possível carregar a fila de fontes." });
+  }
+
+  // Prioriza novas fontes. Só tenta novamente erros antigos quando não restar
+  // nenhuma pendente; itens presos em processing são recuperados após 15 min.
+  let sources = queue.filter((source) => source.status === "pending").slice(0, 3);
+  let mode = "pending";
+
+  if (!sources.length) {
+    const now = Date.now();
+    const staleProcessing = queue.filter((source) => {
+      if (source.status !== "processing") return false;
+      const updated = Date.parse(String(source.updated_at || ""));
+      return Number.isFinite(updated) && now - updated >= 15 * 60 * 1000;
+    });
+    const staleErrors = queue.filter((source) => {
+      if (source.status !== "error") return false;
+      const updated = Date.parse(String(source.updated_at || ""));
+      return Number.isFinite(updated) && now - updated >= 24 * 60 * 60 * 1000;
+    });
+    sources = [...staleProcessing, ...staleErrors].slice(0, 3);
+    mode = sources.some((source) => source.status === "processing") ? "recover_stale" : "retry_errors";
+  }
+
+  if (!sources.length) {
+    return res.set("Cache-Control", "no-store").json({
+      ok: true,
+      mode: "idle",
+      processed: 0,
+      completed: 0,
+      errors: 0,
+      message: "Nenhuma fonte elegível para processamento automático neste momento."
+    });
+  }
+
+  const result = await processSourceItems(req, sources);
+  console.log("Cron FitaSolta:", JSON.stringify({
+    mode,
+    processed: result.processed,
+    completed: result.completed,
+    errors: result.errors
+  }));
+
+  return res.set("Cache-Control", "no-store").json({
+    ok: result.errors === 0,
+    mode,
+    processed: result.processed,
+    completed: result.completed,
+    errors: result.errors
   });
 });
 
