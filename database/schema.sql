@@ -49,19 +49,6 @@ CREATE TABLE IF NOT EXISTS legal_conclusions (
   FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS documents (
-  id TEXT PRIMARY KEY,
-  stored_name TEXT NOT NULL UNIQUE,
-  original_name TEXT NOT NULL,
-  mime_type TEXT NOT NULL DEFAULT 'application/pdf',
-  size_bytes INTEGER NOT NULL DEFAULT 0,
-  category TEXT NOT NULL DEFAULT '',
-  pages INTEGER,
-  description TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL DEFAULT 'uploaded',
-  uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS audit_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   action TEXT NOT NULL,
@@ -75,5 +62,4 @@ CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
 CREATE INDEX IF NOT EXISTS idx_relationships_source ON relationships(source_id);
 CREATE INDEX IF NOT EXISTS idx_relationships_target ON relationships(target_id);
 CREATE INDEX IF NOT EXISTS idx_sources_publisher ON sources(publisher);
-CREATE INDEX IF NOT EXISTS idx_documents_uploaded_at ON documents(uploaded_at);
 CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events(created_at);

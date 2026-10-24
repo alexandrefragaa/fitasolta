@@ -11,11 +11,6 @@
     relationships: [],
     selectedEntityId: null,
     loadingGraph: false,
-    loadingDocuments: false,
-    loadingSourceQueue: false,
-    loadingPublicBoard: false,
-    sourceQueue: [],
-    uploadingDocument: false
   };
 
   const $ = (selector, root = document) =>
@@ -30,30 +25,31 @@
     auditPanel: $("#audit-panel"),
     auditList: $("#audit-list"),
     logoutButton: $("#logout-button"),
-    sourceQueuePanel: $("#source-queue-panel"),
-    sourceQueueStatus: $("#source-queue-status"),
-    sourceQueueSearch: $("#source-queue-search"),
-    sourceQueueList: $("#source-queue-list"),
-    refreshSourceQueue: $("#refresh-source-queue"),
-    processSourceQueue: $("#process-source-queue"),
 
     search: $("#search"),
     searchButton: $("#search-button"),
     graph: $("#graph"),
-    publicSourceList: $("#public-source-list"),
-    boardSummary: $("#board-summary"),
     graphDetails: $("#entity-details"),
     refreshGraph: $("#refresh-graph"),
 
-    uploadForm: $("#upload-form"),
-    pdfFile: $("#pdf-file"),
-    uploadAccess: $("#upload-access"),
-    uploadStatus: $("#upload-status"),
-    documentsPanel: $("#documents-panel"),
-    documentsList: $("#documents-list"),
-    refreshDocuments: $("#refresh-documents"),
-
     healthStatus: $("#health-status"),
+    sourcesList: $("#sources-list"),
+    investigateForm: $("#investigate-form"),
+    investigateUrl: $("#investigate-url"),
+    investigateStatus: $("#investigate-status"),
+    investigateResult: $("#investigate-result"),
+    entityForm: $("#entity-form"),
+    entityFormStatus: $("#entity-form-status"),
+    relationshipForm: $("#relationship-form"),
+    relationshipFormStatus: $("#relationship-form-status"),
+    entityName: $("#entity-name"),
+    entityType: $("#entity-type"),
+    entityDescription: $("#entity-description"),
+    entitySourceUrl: $("#entity-source-url"),
+    entitySourceDate: $("#entity-source-date"),
+    entityStatus: $("#entity-status"),
+    relationshipSource: $("#relationship-source"),
+    relationshipTarget: $("#relationship-target"),
     cookieNotice: $("#cookie-notice"),
     cookieDismiss: $("#cookie-dismiss")
   };
@@ -131,24 +127,6 @@
       dateStyle: "short",
       timeStyle: "short"
     }).format(date);
-  }
-
-  function formatFileSize(bytes) {
-    const size = Number(bytes);
-
-    if (!Number.isFinite(size) || size < 0) {
-      return "Tamanho desconhecido";
-    }
-
-    if (size < 1024) {
-      return `${size} bytes`;
-    }
-
-    if (size < 1024 * 1024) {
-      return `${(size / 1024).toFixed(1)} KB`;
-    }
-
-    return `${(size / (1024 * 1024)).toFixed(2)} MB`;
   }
 
   function readableStatus(status) {
@@ -338,62 +316,14 @@
       elements.auditPanel.hidden = !state.isAdmin;
     }
 
-    if (elements.sourceQueuePanel) {
-      elements.sourceQueuePanel.hidden = !state.isAdmin;
-    }
-
     if (elements.adminPassword) {
       elements.adminPassword.value = "";
     }
 
-    updateUploadAccess();
-
     if (state.isAdmin) {
-      await Promise.allSettled([
-        loadDocuments(),
-        loadAuditEvents(),
-        loadSourceQueue()
-      ]);
-    } else {
-      if (elements.documentsPanel) {
-        elements.documentsPanel.hidden = true;
-      }
-
-      if (elements.documentsList) {
-        elements.documentsList.replaceChildren();
-      }
-
-      if (elements.auditList) {
-        elements.auditList.replaceChildren();
-      }
-
-      state.sourceQueue = [];
-      if (elements.sourceQueueList) elements.sourceQueueList.replaceChildren();
-      if (elements.sourceQueueStatus) setText(elements.sourceQueueStatus, "");
-    }
-  }
-
-  function updateUploadAccess() {
-    const fileInput = elements.pdfFile;
-    const submitButton = elements.uploadForm?.querySelector(
-      'button[type="submit"]'
-    );
-
-    if (fileInput) {
-      fileInput.disabled = !state.isAdmin || state.uploadingDocument;
-    }
-
-    if (submitButton) {
-      submitButton.disabled = !state.isAdmin || state.uploadingDocument;
-    }
-
-    if (elements.uploadAccess) {
-      setText(
-        elements.uploadAccess,
-        state.isAdmin
-          ? "Sessão administrativa ativa. Você pode enviar um PDF de até 10 MB."
-          : "Entre na área administrativa para habilitar o envio de documentos."
-      );
+      await loadAuditEvents();
+    } else if (elements.auditList) {
+      elements.auditList.replaceChildren();
     }
   }
 
@@ -465,7 +395,6 @@
       );
     } finally {
       setButtonLoading(submitButton, false);
-      updateUploadAccess();
     }
   }
 
@@ -549,180 +478,6 @@
           "error-message"
         )
       );
-    }
-  }
-
-
-  // ------------------------------------------------------------
-  // Fontes coletadas no Turso (somente leitura)
-  // ------------------------------------------------------------
-
-  function readableQueueStatus(status) {
-    const labels = {
-      pending: "Pendente",
-      processing: "Em processamento",
-      completed: "Concluída",
-      error: "Precisa de revisão"
-    };
-    return labels[status] || "Desconhecido";
-  }
-
-  function renderSourceQueue() {
-    if (!elements.sourceQueueList) return;
-
-    const term = (elements.sourceQueueSearch?.value || "")
-      .trim()
-      .toLocaleLowerCase("pt-BR");
-    const sources = state.sourceQueue.filter((source) => {
-      if (!term) return true;
-      return [source.title, source.url, source.summary, source.status, source.error_message]
-        .some((value) => String(value || "").toLocaleLowerCase("pt-BR").includes(term));
-    });
-
-    elements.sourceQueueList.replaceChildren();
-
-    if (sources.length === 0) {
-      elements.sourceQueueList.appendChild(
-        createMessage(
-          term ? "Nenhuma fonte corresponde ao filtro." : "Nenhuma fonte disponível na fila do Turso."
-        )
-      );
-      return;
-    }
-
-    for (const source of sources) {
-      const item = createElement("li", "source-queue-item");
-      const header = createElement("div", "source-queue-item-heading");
-      const title = createElement("strong", "source-queue-title", source.title || "Fonte sem título");
-      const knownStatus = ["pending", "processing", "completed", "error"].includes(source.status)
-        ? source.status
-        : "unknown";
-      const status = createElement(
-        "span",
-        `source-queue-status source-status-${knownStatus}`,
-        readableQueueStatus(source.status)
-      );
-      header.append(title, status);
-      item.appendChild(header);
-
-      if (source.summary) {
-        item.appendChild(createElement("p", "source-queue-summary", source.summary));
-      }
-
-      if (source.error_message) {
-        item.appendChild(createElement("p", "source-queue-error", `Observação: ${source.error_message}`));
-      }
-
-      const footer = createElement("div", "source-queue-item-footer");
-      const date = createElement("span", "muted", `Atualizada: ${formatDate(source.updated_at || source.created_at)}`);
-      footer.appendChild(date);
-      appendSourceLink(footer, source.url, "Abrir fonte");
-      item.appendChild(footer);
-      elements.sourceQueueList.appendChild(item);
-    }
-  }
-
-
-  async function processSourceQueue() {
-    if (!state.isAdmin || !elements.processSourceQueue) return;
-    setButtonLoading(elements.processSourceQueue, true, "Processando…");
-    setStatus(elements.sourceQueueStatus, "Extraindo páginas e analisando até 3 fontes com Gemini…");
-    try {
-      const data = await apiFetch("/admin/process-sources", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": state.csrfToken },
-        body: JSON.stringify({ limit: 3 })
-      });
-      await loadSourceQueue();
-      setStatus(elements.sourceQueueStatus, data.message || ("Lote concluído: " + (data.completed || 0) + " fontes processadas, " + (data.errors || 0) + " com erro."), Boolean(data.errors));
-    } catch (error) {
-      setStatus(elements.sourceQueueStatus, error.message || "Não foi possível processar as fontes.", true);
-    } finally {
-      setButtonLoading(elements.processSourceQueue, false);
-    }
-  }
-
-  async function loadSourceQueue() {
-    if (!state.isAdmin || !elements.sourceQueueList || state.loadingSourceQueue) return;
-
-    state.loadingSourceQueue = true;
-    setButtonLoading(elements.refreshSourceQueue, true, "Carregando…");
-    elements.sourceQueueList.replaceChildren(createMessage("Carregando fontes do Turso…"));
-    setStatus(elements.sourceQueueStatus, "");
-
-    try {
-      const data = await apiFetch("/admin/sources");
-      state.sourceQueue = Array.isArray(data.sources) ? data.sources : [];
-      const counts = { completed: 0, pending: 0, processing: 0, error: 0 };
-      for (const source of state.sourceQueue) {
-        if (Object.prototype.hasOwnProperty.call(counts, source.status)) {
-          counts[source.status] += 1;
-        }
-      }
-
-      setStatus(
-        elements.sourceQueueStatus,
-        `${state.sourceQueue.length} fontes · ${counts.completed} concluídas · ${counts.pending} pendentes · ${counts.error} para revisão`
-      );
-      renderSourceQueue();
-    } catch (error) {
-      state.sourceQueue = [];
-      elements.sourceQueueList.replaceChildren(
-        createMessage(error.message || "Não foi possível carregar as fontes.", "error-message")
-      );
-      setStatus(
-        elements.sourceQueueStatus,
-        error.message || "Não foi possível carregar a fila de fontes.",
-        true
-      );
-    } finally {
-      state.loadingSourceQueue = false;
-      setButtonLoading(elements.refreshSourceQueue, false);
-    }
-  }
-
-
-  async function loadPublicBoard() {
-    if (!elements.publicSourceList || state.loadingPublicBoard) return;
-    state.loadingPublicBoard = true;
-    elements.publicSourceList.replaceChildren(createMessage("Consultando o banco de fontes…"));
-    try {
-      const response = await fetch(`${API}/sources`, { headers: { Accept: "application/json" }, cache: "no-store" });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || `Falha ao carregar fontes (HTTP ${response.status}).`);
-      const term = (elements.search?.value || "").trim().toLocaleLowerCase("pt-BR");
-      const sources = (Array.isArray(data.sources) ? data.sources : []).filter((source) =>
-        !term || [source.title, source.url, source.summary, source.status]
-          .some((value) => String(value || "").toLocaleLowerCase("pt-BR").includes(term))
-      );
-      elements.publicSourceList.replaceChildren();
-      if (elements.boardSummary) elements.boardSummary.textContent =
-        `${sources.length} registro(s) exibido(s)${term ? " para esta pesquisa" : ""} · dados lidos diretamente do banco de fontes.`;
-      if (!sources.length) {
-        elements.publicSourceList.appendChild(createMessage(term
-          ? "Nenhuma fonte corresponde à sua pesquisa. Tente outro nome ou termo."
-          : "Ainda não há fontes cadastradas para exibir. Adicione links à fila de fontes do Turso na área administrativa."));
-        return;
-      }
-      for (const source of sources) {
-        const card = createElement("article", "public-source-card");
-        const top = createElement("div", "source-card-top");
-        const status = createElement("span", `source-card-status ${source.status}`, readableQueueStatus(source.status));
-        const id = createElement("span", "muted", source.id ? `Registro #${source.id}` : "Registro de fonte");
-        top.append(status, id);
-        const title = createElement("h3", "", source.title || "Fonte sem título");
-        const summary = createElement("p", "source-card-summary", source.summary || "Ainda não há resumo registrado para esta fonte. Abra o link original para consultar o conteúdo.");
-        const footer = createElement("div", "source-card-footer");
-        footer.appendChild(createElement("span", "", `Atualizado: ${formatDate(source.updated_at || source.created_at)}`));
-        appendSourceLink(footer, source.url, "Abrir fonte original ↗");
-        card.append(top, title, summary, footer);
-        elements.publicSourceList.appendChild(card);
-      }
-    } catch (error) {
-      elements.publicSourceList.replaceChildren(createMessage(error.message || "Não foi possível carregar as fontes.", "error-message"));
-      if (elements.boardSummary) elements.boardSummary.textContent = "Não foi possível conectar ao banco de fontes.";
-    } finally {
-      state.loadingPublicBoard = false;
     }
   }
 
@@ -1110,214 +865,122 @@
   }
 
   // ------------------------------------------------------------
-  // Upload e gestão de documentos privados
+  // Fontes externas e formulários administrativos
   // ------------------------------------------------------------
 
-  async function handleDocumentUpload(event) {
-    event.preventDefault();
-
-    if (!state.isAdmin) {
-      setStatus(
-        elements.uploadStatus,
-        "Entre na área administrativa antes de enviar documentos.",
-        true
-      );
-      return;
-    }
-
-    if (state.uploadingDocument) return;
-
-    const file = elements.pdfFile?.files?.[0];
-
-    if (!file) {
-      setStatus(elements.uploadStatus, "Selecione um PDF.", true);
-      return;
-    }
-
-    if (
-      !file.name.toLowerCase().endsWith(".pdf") ||
-      file.type !== "application/pdf"
-    ) {
-      setStatus(
-        elements.uploadStatus,
-        "Selecione um arquivo com extensão PDF e tipo application/pdf.",
-        true
-      );
-      return;
-    }
-
-    const maxSize = 10 * 1024 * 1024;
-
-    if (file.size > maxSize) {
-      setStatus(
-        elements.uploadStatus,
-        "O arquivo ultrapassa o limite de 10 MB.",
-        true
-      );
-      return;
-    }
-
-    state.uploadingDocument = true;
-    updateUploadAccess();
-
-    const submitButton = elements.uploadForm?.querySelector(
-      'button[type="submit"]'
-    );
-
-    setButtonLoading(submitButton, true, "Enviando…");
-    setStatus(elements.uploadStatus, "Enviando e validando o documento…");
-
+  async function loadSources() {
+    if (!elements.sourcesList) return;
+    elements.sourcesList.replaceChildren(createMessage("Carregando fontes cadastradas…"));
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const result = await apiFetch("/documents", {
-        method: "POST",
-        body: formData
-      });
-
-      elements.uploadForm.reset();
-
-      setStatus(
-        elements.uploadStatus,
-        result.message || "PDF enviado com sucesso."
-      );
-
-      await loadDocuments();
-    } catch (error) {
-      setStatus(
-        elements.uploadStatus,
-        error.message || "Não foi possível enviar o documento.",
-        true
-      );
-    } finally {
-      state.uploadingDocument = false;
-      setButtonLoading(submitButton, false);
-      updateUploadAccess();
-    }
-  }
-
-  async function loadDocuments() {
-    if (!state.isAdmin || state.loadingDocuments) return;
-
-    state.loadingDocuments = true;
-
-    if (elements.refreshDocuments) {
-      setButtonLoading(elements.refreshDocuments, true, "Atualizando…");
-    }
-
-    try {
-      const data = await apiFetch("/documents");
-      const documents = Array.isArray(data.documents)
-        ? data.documents
-        : [];
-
-      elements.documentsList?.replaceChildren();
-
-      if (elements.documentsPanel) {
-        elements.documentsPanel.hidden = false;
-      }
-
-      if (documents.length === 0) {
-        elements.documentsList?.appendChild(
-          createMessage("Nenhum PDF armazenado.")
-        );
+      const data = await apiFetch("/sources");
+      const sources = Array.isArray(data.sources) ? data.sources : [];
+      elements.sourcesList.replaceChildren();
+      if (!sources.length) {
+        elements.sourcesList.appendChild(createMessage("Nenhuma fonte cadastrada ainda."));
         return;
       }
-
-      for (const documentInfo of documents) {
-        const item = createElement("li", "document-item");
-
-        const title = createElement(
-          "strong",
-          "document-name",
-          documentInfo.original_name || "documento.pdf"
-        );
-
-        const metadata = createElement(
-          "p",
-          "muted",
-          `${formatFileSize(documentInfo.size_bytes)} · Enviado em ${formatDate(documentInfo.uploaded_at)}`
-        );
-
-        const download = createElement(
-          "a",
-          "button button-outline",
-          "Baixar PDF"
-        );
-
-        download.href =
-          `${API}/documents/${encodeURIComponent(documentInfo.id)}/download`;
-
-        download.setAttribute("aria-label", `Baixar ${documentInfo.original_name || "documento PDF"}`);
-
-        const actions = createElement("div", "document-actions");
-        actions.appendChild(download);
-
-        const deleteButton = createElement(
-          "button",
-          "button button-outline",
-          "Excluir"
-        );
-
-        deleteButton.type = "button";
-        deleteButton.addEventListener("click", () => {
-          deleteDocument(documentInfo);
-        });
-
-        actions.appendChild(deleteButton);
-        item.append(title, metadata, actions);
-        elements.documentsList?.appendChild(item);
+      for (const source of sources) {
+        const item = createElement("article", "source-item");
+        item.appendChild(createElement("h3", "", source.title || source.url));
+        if (source.description) item.appendChild(createElement("p", "muted", source.description));
+        const meta = createElement("p", "muted", `Referenciada em ${source.references} registro(s)`);
+        item.appendChild(meta);
+        appendSourceLink(item, source.url, "Abrir fonte original");
+        elements.sourcesList.appendChild(item);
       }
     } catch (error) {
-      elements.documentsList?.replaceChildren(
-        createMessage(
-          error.message || "Não foi possível carregar os documentos.",
-          "error-message"
-        )
-      );
-
-      if (elements.documentsPanel) {
-        elements.documentsPanel.hidden = false;
-      }
-    } finally {
-      state.loadingDocuments = false;
-
-      if (elements.refreshDocuments) {
-        setButtonLoading(elements.refreshDocuments, false);
-      }
+      elements.sourcesList.replaceChildren(createMessage(error.message || "Não foi possível carregar as fontes.", "error-message"));
     }
   }
 
-  async function deleteDocument(documentInfo) {
-    if (!state.isAdmin) {
-      setStatus(
-        elements.uploadStatus,
-        "Sua sessão administrativa não está ativa.",
-        true
-      );
-      return;
-    }
+  function formValues(form) {
+    return Object.fromEntries(new FormData(form).entries());
+  }
 
-    const name = documentInfo.original_name || "este documento";
-
-    if (!window.confirm(`Deseja excluir permanentemente "${name}"?`)) {
-      return;
-    }
-
+  async function handleInvestigate(event) {
+    event.preventDefault();
+    const url = elements.investigateUrl?.value.trim();
+    if (!url) return;
+    const button = elements.investigateForm?.querySelector('button[type="submit"]');
+    setButtonLoading(button, true, "Analisando fonte…");
+    setStatus(elements.investigateStatus, "Acessando a fonte e analisando o conteúdo. Isso pode levar alguns segundos.");
+    elements.investigateResult?.replaceChildren();
     try {
-      await apiFetch(`/documents/${encodeURIComponent(documentInfo.id)}`, {
-        method: "DELETE"
-      });
-
-      setStatus(elements.uploadStatus, "Documento excluído.");
-      await loadDocuments();
+      const data = await apiFetch("/admin/investigate-link", { method: "POST", body: { url } });
+      setStatus(elements.investigateStatus, `Análise concluída. ${data.entities_added || 0} entidades e ${data.relationships_added || 0} conexões novas.`);
+      if (elements.investigateResult) {
+        const summary = createElement("p", "", data.summary || "A análise terminou sem resumo.");
+        elements.investigateResult.appendChild(summary);
+        if (data.source?.url) appendSourceLink(elements.investigateResult, data.source.url, "Abrir fonte analisada");
+        const details = createElement("p", "muted", `Fonte: ${data.source?.title || data.source?.url || url}`);
+        elements.investigateResult.appendChild(details);
+        if (Array.isArray(data.timeline) && data.timeline.length) {
+          elements.investigateResult.appendChild(createElement("h4", "", "Linha do tempo extraída"));
+          const list = createElement("ul");
+          for (const event of data.timeline) {
+            list.appendChild(createElement("li", "", [event.date, event.event, event.status].filter(Boolean).join(" — ")));
+          }
+          elements.investigateResult.appendChild(list);
+        }
+      }
+      await Promise.all([loadGraph(), loadSources()]);
+      await loadEntityOptions();
     } catch (error) {
-      setStatus(
-        elements.uploadStatus,
-        error.message || "Não foi possível excluir o documento.",
-        true
-      );
+      setStatus(elements.investigateStatus, error.message || "Não foi possível analisar a fonte.", true);
+    } finally {
+      setButtonLoading(button, false);
+    }
+  }
+
+  async function handleCreateEntity(event) {
+    event.preventDefault();
+    const button = elements.entityForm?.querySelector('button[type="submit"]');
+    setButtonLoading(button, true, "Salvando…");
+    setStatus(elements.entityFormStatus, "");
+    try {
+      await apiFetch("/entities", { method: "POST", body: formValues(elements.entityForm) });
+      elements.entityForm.reset();
+      setStatus(elements.entityFormStatus, "Entidade adicionada ao mural.");
+      await Promise.all([loadGraph(), loadSources(), loadEntityOptions()]);
+    } catch (error) {
+      setStatus(elements.entityFormStatus, error.message || "Não foi possível salvar a entidade.", true);
+    } finally {
+      setButtonLoading(button, false);
+    }
+  }
+
+  async function loadEntityOptions() {
+    const selects = [elements.relationshipSource, elements.relationshipTarget].filter(Boolean);
+    if (!selects.length) return;
+    try {
+      const data = await apiFetch("/entities");
+      const entities = Array.isArray(data.entities) ? data.entities : [];
+      for (const select of selects) {
+        const previous = select.value;
+        select.replaceChildren();
+        select.appendChild(new Option("Selecione uma entidade", ""));
+        for (const entity of entities) select.appendChild(new Option(entity.name, entity.id));
+        if (entities.some((entity) => entity.id === previous)) select.value = previous;
+      }
+    } catch (error) {
+      setStatus(elements.relationshipFormStatus, error.message || "Não foi possível carregar as entidades.", true);
+    }
+  }
+
+  async function handleCreateRelationship(event) {
+    event.preventDefault();
+    const button = elements.relationshipForm?.querySelector('button[type="submit"]');
+    setButtonLoading(button, true, "Salvando conexão…");
+    setStatus(elements.relationshipFormStatus, "");
+    try {
+      await apiFetch("/relationships", { method: "POST", body: formValues(elements.relationshipForm) });
+      elements.relationshipForm.reset();
+      setStatus(elements.relationshipFormStatus, "Conexão adicionada ao mural.");
+      await Promise.all([loadGraph(), loadSources(), loadEntityOptions()]);
+    } catch (error) {
+      setStatus(elements.relationshipFormStatus, error.message || "Não foi possível salvar a conexão.", true);
+    } finally {
+      setButtonLoading(button, false);
     }
   }
 
@@ -1375,66 +1038,6 @@
     }
   }
 
-
-  async function handleGeminiReview(event) {
-    event.preventDefault();
-    const form = $("#gemini-review-form");
-    const result = $("#gemini-review-result");
-    const button = $("#gemini-review-submit");
-    if (!form || !result || !button) return;
-    const val = (id) => $(id)?.value.trim() || "";
-    const payload = {
-      claim: val("#gemini-claim"),
-      context: val("#gemini-context"),
-      source_title: val("#gemini-source-title"),
-      source_url: val("#gemini-source-url"),
-      source_excerpt: val("#gemini-source-excerpt")
-    };
-    button.disabled = true;
-    result.replaceChildren(createMessage("Comparando a afirmação com o trecho informado…"));
-    try {
-      const response = await fetch(`${API}/admin/verify-evidence`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": state.csrfToken, Accept: "application/json" },
-        body: JSON.stringify(payload)
-      });
-      const data = await response.json();
-      if (!response.ok) throw new ApiError(data.error || "A revisão falhou.", response.status);
-      const review = data.review;
-      result.replaceChildren();
-      const heading = createElement("h4", "", `Resultado: ${({
-        sustentada: "Sustentada pelo trecho",
-        parcialmente_sustentada: "Parcialmente sustentada",
-        nao_sustentada_pelo_trecho: "Não sustentada pelo trecho",
-        contradita_pelo_trecho: "Contradita pelo trecho",
-        inconclusiva: "Inconclusiva"
-      })[review.verdict] || "Inconclusiva"}`);
-      result.append(heading);
-      result.append(createElement("p", "", `Confiança estimada pela IA: ${({baixa:"baixa",media:"média",alta:"alta"})[review.confidence] || "baixa"}. Isso não é uma probabilidade estatística.`));
-      if (review.explanation) result.append(createElement("p", "", review.explanation));
-      const addList = (title, items) => {
-        if (!Array.isArray(items) || !items.length) return;
-        result.append(createElement("h5", "", title));
-        const ul = createElement("ul", "");
-        for (const item of items) ul.append(createElement("li", "", item));
-        result.append(ul);
-      };
-      addList("Pontos apoiados pelo trecho", review.supported_points);
-      addList("Informações que faltam", review.missing_points);
-      addList("Cuidados", review.cautions);
-      if (review.suggested_rewrite) {
-        result.append(createElement("h5", "", "Redação mais cautelosa sugerida"));
-        result.append(createElement("p", "", review.suggested_rewrite));
-      }
-      if (review.source_limitations) result.append(createElement("p", "", "Limitações da fonte: " + review.source_limitations));
-      result.append(createElement("p", "muted", review.disclaimer || "Revise manualmente antes de publicar."));
-    } catch (error) {
-      result.replaceChildren(createMessage(error.message || "Não foi possível revisar as evidências.", "empty-state"));
-    } finally {
-      button.disabled = false;
-    }
-  }
-
   // ------------------------------------------------------------
   // Eventos e inicialização
   // ------------------------------------------------------------
@@ -1457,17 +1060,12 @@
     });
 
     elements.loginForm?.addEventListener("submit", handleLogin);
-    $("#gemini-review-form")?.addEventListener("submit", handleGeminiReview);
+    elements.investigateForm?.addEventListener("submit", handleInvestigate);
+    elements.entityForm?.addEventListener("submit", handleCreateEntity);
+    elements.relationshipForm?.addEventListener("submit", handleCreateRelationship);
     elements.logoutButton?.addEventListener("click", handleLogout);
-    elements.uploadForm?.addEventListener("submit", handleDocumentUpload);
-
-    elements.refreshGraph?.addEventListener("click", loadPublicBoard);
-    elements.refreshDocuments?.addEventListener("click", loadDocuments);
-    elements.refreshSourceQueue?.addEventListener("click", loadSourceQueue);
-    elements.processSourceQueue?.addEventListener("click", processSourceQueue);
-    elements.sourceQueueSearch?.addEventListener("input", renderSourceQueue);
-
-    elements.searchButton?.addEventListener("click", () => { applySearch(); loadPublicBoard(); });
+    elements.refreshGraph?.addEventListener("click", loadGraph);
+    elements.searchButton?.addEventListener("click", applySearch);
 
     elements.search?.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
@@ -1476,7 +1074,7 @@
       }
     });
 
-    elements.search?.addEventListener("input", () => { applySearch(); loadPublicBoard(); });
+    elements.search?.addEventListener("input", applySearch);
 
     elements.cookieDismiss?.addEventListener(
       "click",
@@ -1493,8 +1091,6 @@
   async function initialize() {
     attachEvents();
     initializeCookieNotice();
-    updateUploadAccess();
-
     await refreshCsrfToken().catch(() => {
       setStatus(
         elements.loginStatus,
@@ -1504,7 +1100,8 @@
     });
 
     await Promise.allSettled([
-      loadPublicBoard(),
+      loadGraph(),
+      loadSources(),
       checkHealth(),
       checkAdminSession()
     ]);
@@ -1512,7 +1109,6 @@
     // O token pode ter falhado na primeira tentativa se a API
     // ainda não estivesse pronta. Não presumimos autenticação.
     if (state.isAdmin) {
-      updateUploadAccess();
     }
   }
 

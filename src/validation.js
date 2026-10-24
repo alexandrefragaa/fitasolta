@@ -139,22 +139,6 @@ export function isIsoDate(value) {
 }
 
 /**
- * Verifica se o conteúdo recebido começa com a assinatura %PDF-.
- *
- * A função exige um Buffer. A assinatura inicial não garante
- * que o documento inteiro seja válido ou esteja livre de malware.
- */
-export function isPdf(value) {
-  if (!Buffer.isBuffer(value) || value.length < 5) {
-    return false;
-  }
-
-  return value.subarray(0, 5).equals(
-    Buffer.from("%PDF-", "ascii")
-  );
-}
-
-/**
  * Aceita somente URLs HTTP e HTTPS.
  *
  * Retorno:
@@ -201,34 +185,3 @@ export function normalizeHttpUrl(value) {
   }
 }
 
-/**
- * Sanitiza o nome original de um arquivo para exibição e download.
- *
- * Remove separadores de diretório e caracteres de controle.
- * Não deve ser usado como nome interno de armazenamento.
- *
- * O servidor usa um UUID para o nome real do PDF armazenado.
- */
-export function sanitizeOriginalFilename(value) {
-  if (typeof value !== "string") {
-    return "documento.pdf";
-  }
-
-  let filename = value
-    .replace(/[\\/]/g, "_")
-    .replace(/[\u0000-\u001F\u007F]/g, "")
-    .replace(/[<>:"|?*]/g, "_")
-    .trim();
-
-  filename = filename.slice(0, 180);
-
-  if (
-    filename === "" ||
-    filename === "." ||
-    filename === ".."
-  ) {
-    return "documento.pdf";
-  }
-
-  return filename;
-}
