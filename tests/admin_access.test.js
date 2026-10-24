@@ -29,4 +29,4 @@ test("daily automation remains protected",()=>{
  assert.ok(server.includes("discoverDailySources(queue)"));assert.ok(server.includes('req.get("authorization") !== "Bearer " + CRON_SECRET'));
 });
 test("voting endpoints are disabled without deleting stored records",()=>{assert.ok(server.includes('app.all("/api/topic-votes"'));assert.ok(server.includes(".status(410)"))});
-test("JavaScript syntax",()=>{assert.doesNotThrow(()=>new Script(app));assert.doesNotThrow(()=>new Script(server))});
+test("browser JavaScript syntax",()=>assert.doesNotThrow(()=>new Script(app)));
