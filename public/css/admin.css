@@ -1,0 +1,28 @@
+.admin-app .admin-main { padding-bottom: 2rem; }
+.admin-app .admin-hero { max-width: 100%; padding: 2.25rem 0 1rem; }
+.admin-app .admin-hero h1 { font-size: clamp(2.25rem, 5vw, 3.8rem); line-height: 1.02; max-width: 900px; }
+.admin-automation-note { display: flex; align-items: flex-start; gap: .9rem; max-width: 780px; margin-top: 1.4rem; padding: 1rem 1.1rem; border: 1px solid var(--border); border-radius: .9rem; background: #131722; }
+.admin-automation-note p { margin: 0; color: var(--muted); font-size: .92rem; }
+.admin-automation-note strong { color: var(--text); }
+.admin-note-mark { display: grid; place-items: center; flex: 0 0 2.2rem; height: 2.2rem; border: 1px solid #39845a; border-radius: 50%; color: #b5f2cc; font-size: 1.35rem; }
+.admin-panel { scroll-margin-top: 6rem; }
+.admin-queue-heading { align-items: flex-start; flex-wrap: wrap; }
+.admin-queue-heading > div:first-child { flex: 1 1 360px; min-width: 0; }
+.admin-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: .5rem; }
+.admin-actions .button { white-space: normal; }
+.admin-status { margin: .5rem 0; }
+.admin-login-panel { max-width: 600px; }
+.admin-review-form { max-width: 780px; }
+.admin-review-result { white-space: normal; margin-top: 1rem; }
+.admin-review-result:empty { display: none; }
+.admin-app .source-queue-list { max-height: none; overflow: visible; }
+.admin-app .source-queue-item { padding: 1rem; }
+.admin-app .source-queue-error { padding: .5rem .65rem; background: #9d35421a; border-radius: .45rem; }
+.admin-app .audit-list { max-height: 380px; }
+.admin-app .footer { align-items: center; }
+@media (max-width: 720px) {
+  .admin-app .admin-hero { padding-top: 1.5rem; }
+  .admin-actions { width: 100%; justify-content: stretch; }
+  .admin-actions .button { flex: 1 1 100%; }
+  .admin-automation-note { align-items: flex-start; }
+}
