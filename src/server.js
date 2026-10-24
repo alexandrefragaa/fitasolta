@@ -581,7 +581,55 @@ const loginLimiter = rateLimit({
   message: { error: "Muitas tentativas de login. Aguarde antes de tentar novamente." }
 });
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const GEMINI_MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-3.8-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite";
+
+// Se um modelo estiver indisponível/sobrecarregado, tenta um segundo modelo estável.
+async function generateGeminiJson(prompt, generationConfig = { temperature: 0.1, responseMimeType: "application/json" }) {
+  const fallbackModel = GEMINI_MODEL === "gemini-3.5-flash-lite"
+    ? "gemini-3.6-flash"
+    : "gemini-3.5-flash-lite";
+  const models = [...new Set([GEMINI_MODEL, fallbackModel])];
+  let lastError = null;
+
+  for (const model of models) {
+    let response;
+    try {
+      response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY.trim() },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig
+          }),
+          signal: AbortSignal.timeout(15000)
+        }
+      );
+    } catch (error) {
+      lastError = error;
+      console.error("Gemini request failed for model", model, error?.name || "Error");
+      continue;
+    }
+
+    if (response.ok) {
+      try {
+        return { model, payload: await response.json() };
+      } catch (error) {
+        lastError = error;
+        console.error("Gemini returned invalid JSON transport for model", model);
+        continue;
+      }
+    }
+
+    const details = (await response.text().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 500);
+    lastError = new Error(`Gemini ${model} respondeu HTTP ${response.status}${details ? ": " + details : "."}`);
+    console.error("Gemini request returned HTTP", response.status, "model", model, details);
+    if (![404, 408, 429, 500, 502, 503, 504].includes(response.status)) break;
+  }
+
+  throw lastError || new Error("Gemini não retornou uma resposta.");
+}
 const verificationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
@@ -625,21 +673,7 @@ app.post("/api/admin/verify-evidence", verificationLimiter, requireCsrf, require
   ].join("\n\n");
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY.trim() },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.1, responseMimeType: "application/json" }
-      }),
-      signal: AbortSignal.timeout(30000)
-    });
-    if (!response.ok) {
-      const details = (await response.text().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 500);
-      console.error("Gemini evidence review returned HTTP", response.status, details);
-      return res.status(502).json({ error: "O Gemini não conseguiu concluir a revisão agora. Tente novamente mais tarde." });
-    }
-    const payload = await response.json();
+    const { payload } = await generateGeminiJson(prompt);
     const raw = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
     if (!raw) return res.status(502).json({ error: "O Gemini retornou uma resposta vazia." });
     let review;
@@ -737,18 +771,7 @@ async function summarizeExtractedSource(source) {
     "Título HTML: " + (source.title || "(ausente)"),
     "Texto extraído:\n" + source.text
   ].join("\n\n");
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY.trim() },
-    body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, responseMimeType: "application/json" } }),
-    signal: AbortSignal.timeout(30000)
-  });
-  if (!response.ok) {
-    const details = (await response.text().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 500);
-    console.error("Gemini source summary returned HTTP", response.status, details);
-    throw new Error("Gemini respondeu HTTP " + response.status + (details ? ": " + details : "."));
-  }
-  const payload = await response.json();
+  const { payload } = await generateGeminiJson(prompt);
   const raw = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
   if (!raw) throw new Error("Gemini retornou resposta vazia.");
   const parsed = JSON.parse(raw);
@@ -770,13 +793,23 @@ const processSourcesLimiter = rateLimit({
 
 app.post("/api/admin/process-sources", processSourcesLimiter, requireCsrf, requireAdmin, async (req, res) => {
   if (!GEMINI_API_KEY.trim()) return res.status(503).json({ error: "Configure GEMINI_API_KEY nas variáveis de ambiente da Vercel antes de processar fontes." });
+  const retryErrors = req.body?.retryErrors === true;
   let pending;
   try {
-    pending = (await readTursoSourceQueue()).filter((source) => source.status === "pending").slice(0, 3);
+    const sourceStatus = retryErrors ? "error" : "pending";
+    pending = (await readTursoSourceQueue()).filter((source) => source.status === sourceStatus).slice(0, 3);
   } catch {
     return res.status(502).json({ error: "Não foi possível carregar a fila de fontes do Turso." });
   }
-  if (!pending.length) return res.json({ ok: true, processed: 0, completed: 0, errors: 0, message: "Não há fontes pendentes." });
+  if (!pending.length) {
+    return res.json({
+      ok: true,
+      processed: 0,
+      completed: 0,
+      errors: 0,
+      message: retryErrors ? "Não há fontes com erro para tentar novamente." : "Não há fontes pendentes."
+    });
+  }
   const results = [];
   for (const source of pending) {
     try {
@@ -1534,21 +1567,10 @@ app.post("/api/admin/claims/:id/ai-review", requireCsrf, requireAdmin, asyncHand
   let model;
   try {
     if (process.env.GEMINI_API_KEY) {
-      model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-      const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" +
-        encodeURIComponent(model) + ":generateContent?key=" + encodeURIComponent(process.env.GEMINI_API_KEY), {
-        method: "POST",
-        signal: AbortSignal.timeout(45000),
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, responseMimeType: "application/json" }
-        })
-      });
-      if (!response.ok) return res.status(502).json({ error: "Gemini não conseguiu concluir a revisão. Confira modelo, cota e chave." });
-      const body = await response.json();
-      const text = body.candidates?.[0]?.content?.parts?.map(part => part.text || "").join("") || "";
-      output = JSON.parse(text);
+      const generated = await generateGeminiJson(prompt);
+      model = generated.model;
+      const generatedText = generated.payload.candidates?.[0]?.content?.parts?.map(part => part.text || "").join("") || "";
+      output = JSON.parse(generatedText);
     } else {
       model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
