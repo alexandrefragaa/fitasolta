@@ -409,6 +409,22 @@
       >
 
       <ul id="source-queue-list" class="source-queue-list"></ul>
+
+      <section class="panel" aria-labelledby="gemini-review-heading">
+        <h3 id="gemini-review-heading">Revisão de evidências com Gemini</h3>
+        <p class="muted">A IA compara a afirmação com o trecho de fonte que você informar. Ela não abre a URL automaticamente e não substitui conferência humana.</p>
+        <form id="gemini-review-form" class="form-stack">
+          <label for="gemini-claim">Afirmação a revisar</label>
+          <textarea id="gemini-claim" rows="3" maxlength="3000" required placeholder="Ex.: A decisão anulou a condenação por determinado fundamento…"></textarea>
+          <label for="gemini-context">Contexto do caso (opcional)</label><textarea id="gemini-context" rows="2" maxlength="3000"></textarea>
+          <label for="gemini-source-title">Título da fonte</label><input id="gemini-source-title" maxlength="300">
+          <label for="gemini-source-url">URL da fonte</label><input id="gemini-source-url" type="url" maxlength="2000" placeholder="https://…">
+          <label for="gemini-source-excerpt">Trecho relevante da fonte</label><textarea id="gemini-source-excerpt" rows="6" maxlength="12000" required placeholder="Cole aqui o trecho do documento, decisão ou reportagem que sustenta a afirmação."></textarea>
+          <button id="gemini-review-submit" class="button" type="submit">Analisar evidências</button>
+        </form>
+        <div id="gemini-review-result" class="status" role="status" aria-live="polite"></div>
+      </section>
+
     </section>
 
   </dialog>
