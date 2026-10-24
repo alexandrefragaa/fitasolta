@@ -878,7 +878,15 @@ app.post("/api/admin/claims/:id/decision", requireCsrf, requireAdmin, asyncHandl
   if (!["approved","rejected","published"].includes(decision)) return res.status(400).json({ error: "Decisão editorial inválida." });
   const claim = await db.prepare("SELECT * FROM claims WHERE id=?").get(req.params.id);
   if (!claim) return res.status(404).json({ error: "Ficha não encontrada." });
-  if (decision === "published" && claim.status !== "approved") return res.status(409).json({ error: "A ficha precisa ser aprovada em uma etapa anterior antes da publicação." });
+  if (claim.status === "published" && decision !== "published") {
+    return res.status(409).json({ error: "Uma checagem publicada não pode ser alterada por esta ação. Registre uma nova revisão editorial." });
+  }
+  if (decision === "approved" && claim.status !== "in_review") {
+    return res.status(409).json({ error: "A checagem precisa passar pela etapa de revisão antes da aprovação." });
+  }
+  if (decision === "published" && claim.status !== "approved") {
+    return res.status(409).json({ error: "A ficha precisa ser aprovada em uma etapa anterior antes da publicação." });
+  }
   if (decision === "approved") {
     const source = await db.prepare("SELECT id FROM claim_sources WHERE claim_id=? LIMIT 1").get(claim.id);
     if (!claim.quote || !claim.context || !source) return res.status(409).json({ error: "Antes de aprovar, preencha a fala e o contexto e cadastre ao menos uma fonte verificável." });
