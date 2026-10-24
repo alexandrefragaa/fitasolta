@@ -71,3 +71,29 @@ test("related-claim UI is present and public relations filter unpublished claims
   assert.match(server, /c\.status='published'/);
   assert.match(server, /claim_relations/);
 });
+
+test("all supplied videos and the X post are listed without invented metadata", () => {
+  const expected = ["rUnAbA73RH0","T8oPN6v1L0c","Z2AA0h2wr4U","QhluFzoPl30","f62pfk2eHCA","X1fp4JzouvA","tokmOZltAG8","6ktnzdym2-I","gXN1JxBkyX8","r_NN7y0iJ8w","JnogZ2RGZvE","42N0vG4iOGw","kJFYdGuwz0E","Haaaysb/status/2113818839821562016"];
+  for (const id of expected) assert.ok(html.includes(id), "missing source " + id);
+  assert.ok(html.includes("14 materiais recebidos"));
+});
+
+test("public claim display uses evidence labels instead of the private editorial verdict", () => {
+  assert.ok(debateScript.includes("claim.evidence_status"));
+  assert.ok(!debateScript.includes("verdictLabels"));
+  assert.ok(debateScript.includes("supporting_sources"));
+});
+
+test("comparison and theme-priority pages are connected from the home page", () => {
+  const index = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const comparison = readFileSync(new URL("../public/comparar.html", import.meta.url), "utf8");
+  const voting = readFileSync(new URL("../public/votacao.html", import.meta.url), "utf8");
+  const compareScript = readFileSync(new URL("../public/js/comparar.js", import.meta.url), "utf8");
+  assert.ok(index.includes('href="/comparar.html"'));
+  assert.ok(index.includes('href="/votacao.html"'));
+  assert.ok(index.includes('href="/revisao.html"'));
+  assert.ok(comparison.includes('id="compare-output"'));
+  assert.ok(compareScript.includes("/api/timeline"));
+  assert.ok(compareScript.includes("/api/claims/"));
+  assert.ok(voting.toLowerCase().includes("não é pesquisa eleitoral"));
+});
