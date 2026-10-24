@@ -49,6 +49,28 @@ npm test
 node --check src/server.js
 ```
 
+## Debates, checagens e revisão editorial
+
+A página `/debates.html` organiza materiais originais e uma ficha estruturada por afirmação.
+
+1. Abra a página inicial e entre na **Área administrativa** com a conta configurada pelo responsável pelo projeto. Volte a `/debates.html` na mesma sessão.
+2. Escolha o vídeo ou a publicação original, registre a fala literal, o contexto e um timestamp válido para vídeos. Para publicações do X, o timestamp pode ficar vazio.
+3. Registre os URLs das checagens jornalísticas e das fontes primárias. Use **Salvar rascunho no banco** para persistir a ficha no Turso; sem sessão administrativa, nada é salvo.
+4. O rascunho permanece privado. A fila editorial permite iniciar a revisão, editar/rejeitar ou aprovar a ficha. A aprovação exige ao menos uma fonte registrada; a publicação só é permitida depois da aprovação.
+5. Apenas registros com status `published` aparecem na lista pública. Revisão, resumo automático ou existência de um link não garantem que uma alegação esteja correta: confira a fala original, a data, o contexto e a fonte antes de publicar.
+
+### API de checagens
+
+- `GET /api/claims`: lista pública somente de checagens publicadas.
+- `GET /api/claims/:id`: detalhes públicos de uma checagem publicada e suas fontes.
+- `GET /api/admin/claims`: fila privada; exige sessão administrativa.
+- `POST /api/admin/claims` e `PUT /api/admin/claims/:id`: criar/editar rascunhos; exigem autenticação e CSRF.
+- `POST /api/admin/claims/:id/reviews`: registrar o início de uma revisão editorial.
+- `POST /api/admin/claims/:id/decision`: aprovar, rejeitar ou publicar seguindo as transições permitidas.
+- `POST /api/admin/claims/:id/sources` e `POST /api/admin/claims/:id/relations`: registrar fontes e relações entre checagens.
+
+A API não transcreve automaticamente vídeos nem decide a veracidade com IA. A publicação é uma ação editorial humana.
+
 ## O que o projeto oferece
 
 - Mural de entidades e relações.
