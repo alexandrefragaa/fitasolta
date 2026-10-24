@@ -687,7 +687,7 @@ app.post("/api/admin/verify-evidence", verificationLimiter, requireCsrf, require
     "Não trate alegação, investigação ou denúncia como condenação. Diferencie suspeita, acusação, decisão provisória, condenação, absolvição, soltura e anulação.",
     "Se o trecho não sustentar a afirmação, indique insuficiência; não conclua que a afirmação é falsa só porque o trecho não a menciona.",
     "Em soltura ou anulação, só informe o fundamento se estiver explícito no trecho. A soltura não implica absolvição.",
-    "Retorne somente JSON válido com: verdict ("sustentada" | "parcialmente_sustentada" | "nao_sustentada_pelo_trecho" | "contradita_pelo_trecho" | "inconclusiva"), confidence ("baixa" | "media" | "alta"), explanation (string curta), supported_points (array de strings), missing_points (array de strings), cautions (array de strings), suggested_rewrite (string), source_limitations (string).",
+    `Retorne somente JSON válido com os campos: verdict (um de sustentada, parcialmente_sustentada, nao_sustentada_pelo_trecho, contradita_pelo_trecho, inconclusiva), confidence (baixa, media ou alta), explanation (string curta), supported_points (array de strings), missing_points (array de strings), cautions (array de strings), suggested_rewrite (string), source_limitations (string).`,
     "Não atribua culpa criminal a pessoa sem que o trecho e o status jurídico permitam. Redija a resposta de forma neutra.",
     "Afirmação a revisar: " + claim,
     "Contexto do registro: " + (context || "(não informado)"),
