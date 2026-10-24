@@ -1382,7 +1382,7 @@ function publicClaimFilter(req) {
   if (type && CLAIM_TYPES.has(type)) add("c.claim_type = ?", type);
   if (isIsoDate(from) && from) add("c.claim_date >= ?", from);
   if (isIsoDate(to) && to) add("c.claim_date <= ?", to);
-  if (search) add("(lower(c.quote) LIKE lower(?) OR lower(c.context) LIKE lower(?) OR lower(c.speaker) LIKE lower(?))", "%" + search.replace(/[\\%_]/g, "\\app.use(express.static(publicDir, {") + "%");
+  if (search) add("(lower(c.quote) LIKE lower(?) OR lower(c.context) LIKE lower(?) OR lower(c.speaker) LIKE lower(?))", "%" + search.replace(/[\\%_]/g, (char) => "\\" + char) + "%");
   return { where: where.join(" AND "), args };
 }
 
