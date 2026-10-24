@@ -23,6 +23,7 @@ const publicDir = path.join(rootDir, "public");
 const PORT = Number.parseInt(process.env.PORT || "3333", 10);
 const NODE_ENV = process.env.NODE_ENV || "development";
 const IS_PRODUCTION = NODE_ENV === "production";
+const TRUST_PROXY = process.env.TRUST_PROXY === "1" || IS_PRODUCTION;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH;
 
@@ -38,7 +39,7 @@ if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
 
 const app = express();
 app.disable("x-powered-by");
-if (IS_PRODUCTION) app.set("trust proxy", 1);
+if (TRUST_PROXY) app.set("trust proxy", 1);
 
 
 // Use um par URL/token do mesmo banco. Não misture aliases, pois o
