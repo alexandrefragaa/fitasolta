@@ -154,6 +154,10 @@ async function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS claims (
       id TEXT PRIMARY KEY,
       speaker TEXT NOT NULL,
+      claim_date TEXT NOT NULL DEFAULT '',
+      topic TEXT NOT NULL DEFAULT 'outros',
+      location TEXT NOT NULL DEFAULT '',
+      evidence_status TEXT NOT NULL DEFAULT 'nao_verificado',
       video_url TEXT NOT NULL,
       source_kind TEXT NOT NULL DEFAULT 'video_original',
       timestamp TEXT NOT NULL DEFAULT '',
@@ -173,6 +177,7 @@ async function initializeDatabase() {
     );
     CREATE TABLE IF NOT EXISTS claim_sources (
       id TEXT PRIMARY KEY, claim_id TEXT NOT NULL, source_type TEXT NOT NULL,
+      side TEXT NOT NULL DEFAULT 'context',
       title TEXT NOT NULL DEFAULT '', url TEXT NOT NULL, publisher TEXT NOT NULL DEFAULT '',
       published_date TEXT NOT NULL DEFAULT '', excerpt TEXT NOT NULL DEFAULT '',
       notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -272,6 +277,30 @@ async function initializeDatabase() {
       FOREIGN KEY (claim_id) REFERENCES claims(id) ON DELETE SET NULL,
       CHECK (editorial_status IN ('draft','in_review','approved','published','rejected','withdrawn'))
     );
+    CREATE TABLE IF NOT EXISTS claim_versions (
+      id TEXT PRIMARY KEY, claim_id TEXT NOT NULL, action TEXT NOT NULL,
+      actor TEXT NOT NULL DEFAULT 'admin', snapshot_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (claim_id) REFERENCES claims(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS correction_reports (
+      id TEXT PRIMARY KEY, claim_id TEXT NOT NULL, summary TEXT NOT NULL,
+      details TEXT NOT NULL DEFAULT '', evidence_url TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending', review_note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, reviewed_at TEXT,
+      FOREIGN KEY (claim_id) REFERENCES claims(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS topic_votes (
+      id TEXT PRIMARY KEY, poll_period TEXT NOT NULL, topic TEXT NOT NULL,
+      country TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT '', city TEXT NOT NULL DEFAULT '',
+      vote_key TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE (poll_period, vote_key)
+    );
+    CREATE TABLE IF NOT EXISTS aggregate_analytics (
+      id TEXT PRIMARY KEY, day TEXT NOT NULL, event TEXT NOT NULL, resource TEXT NOT NULL,
+      count INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (day, event, resource)
+    );
   `);
 
   async function ensureColumn(table, column, definition) {
@@ -289,8 +318,13 @@ async function initializeDatabase() {
       supporting_evidence: "TEXT NOT NULL DEFAULT ''",
       contradictory_evidence: "TEXT NOT NULL DEFAULT ''",
       journalism_checks: "TEXT NOT NULL DEFAULT '[]'",
-      case_id: "TEXT"
-    }
+      case_id: "TEXT",
+      claim_date: "TEXT NOT NULL DEFAULT ''",
+      topic: "TEXT NOT NULL DEFAULT 'outros'",
+      location: "TEXT NOT NULL DEFAULT ''",
+      evidence_status: "TEXT NOT NULL DEFAULT 'nao_verificado'"
+    },
+    claim_sources: { side: "TEXT NOT NULL DEFAULT 'context'" }
   };
   for (const [table, columns] of Object.entries(claimMigrations)) {
     for (const [column, definition] of Object.entries(columns)) {
@@ -362,6 +396,12 @@ async function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_claims_case ON claims(case_id, status);
     CREATE INDEX IF NOT EXISTS idx_claim_relations_status ON claim_relations(editorial_status, relation_type);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires);
+    CREATE INDEX IF NOT EXISTS idx_claims_topic_date ON claims(topic,claim_date);
+    CREATE INDEX IF NOT EXISTS idx_claim_sources_side ON claim_sources(claim_id,side);
+    CREATE INDEX IF NOT EXISTS idx_claim_versions_claim ON claim_versions(claim_id,created_at);
+    CREATE INDEX IF NOT EXISTS idx_corrections_status ON correction_reports(status,created_at);
+    CREATE INDEX IF NOT EXISTS idx_topic_votes_period ON topic_votes(poll_period,topic);
+    CREATE INDEX IF NOT EXISTS idx_aggregate_analytics_day ON aggregate_analytics(day,event);
   `);
 }
 
@@ -876,18 +916,23 @@ app.delete("/api/relationships/:id", requireCsrf, requireAdmin, asyncHandler(asy
 }));
 
 
-/* Fichas de checagem: privadas por padrão e publicadas somente após aprovação editorial. */
+/* Fichas de checagem: rascunhos privados; nenhuma conclusão aparece automaticamente ao público. */
+async function recordClaimVersion(req, claim, action) {
+  if (!claim || !claim.id) return;
+  const sources = await db.prepare("SELECT source_type,side,title,url,publisher,published_date,excerpt,notes FROM claim_sources WHERE claim_id=? ORDER BY created_at").all(claim.id);
+  await db.prepare("INSERT INTO claim_versions (id,claim_id,action,actor,snapshot_json) VALUES (?,?,?,?,?)")
+    .run(crypto.randomUUID(),claim.id,action,"admin",JSON.stringify({claim,sources}));
+}
 const claimVerdicts = new Set(["verdadeira","falsa","enganosa","fora_de_contexto","inconclusiva","opiniao_previsao","nao_verificada"]);
 const claimStatuses = new Set(["draft","in_review","approved","published","rejected"]);
 const claimSourceTypes = new Set(["jornalistica","primaria","video_original","publicacao_x","outra"]);
 const claimRelations = new Set(["related","supports","contradicts","same_topic","contextualizes"]);
-const publicClaimColumns = "id,speaker,video_url,source_kind,timestamp,quote,context,claim_type,verdict,explanation,supporting_evidence,contradictory_evidence,journalism_checks,status,created_at,updated_at,published_at";
-
+const claimEvidenceStatuses = new Set(["confirmada_por_documento","contradita_por_documento","sem_fonte","em_disputa","documentada","alegacao","hipotese","nao_verificado"]);
+const claimTopics = new Set(["saude","economia","seguranca","educacao","meio_ambiente","corrupcao","trabalho","direitos","politica_externa","outros"]);
+const publicClaimColumns = "id,speaker,claim_date,video_url,source_kind,timestamp,quote,context,topic,location,claim_type,evidence_status,supporting_evidence,contradictory_evidence,journalism_checks,created_at,published_at";
 function safeJsonArray(value) {
-  try {
-    const parsed = JSON.parse(String(value || "[]"));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch { return []; }
+  try { const parsed = JSON.parse(String(value || "[]")); return Array.isArray(parsed) ? parsed : []; }
+  catch { return []; }
 }
 function parseSourceUrls(value) {
   if (!Array.isArray(value)) return { urls: [], error: null };
@@ -901,38 +946,59 @@ function parseSourceUrls(value) {
   }
   return { urls, error: null };
 }
-
-app.get("/api/claims", asyncHandler(async (req, res) => {
-  const rows = await db.prepare("SELECT " + publicClaimColumns + " FROM claims WHERE status='published' ORDER BY published_at DESC LIMIT 200").all();
-  res.set("Cache-Control","no-store").json({ claims: rows.map(row => ({ ...row, journalism_checks: safeJsonArray(row.journalism_checks) })) });
+app.get("/api/claims", asyncHandler(async (req,res) => {
+  const where=["status='published'"], args=[];
+  const add=(sql,value)=>{where.push(sql);args.push(value);};
+  const speaker=cleanString(String(req.query.speaker||""),{max:120});
+  const topic=cleanString(String(req.query.topic||""),{max:40});
+  const type=cleanString(String(req.query.type||""),{max:100});
+  const evidence=cleanString(String(req.query.evidence_status||""),{max:40});
+  const from=String(req.query.from||""),to=String(req.query.to||"");
+  const q=cleanString(String(req.query.q||""),{max:120});
+  if(speaker)add("speaker=?",speaker);
+  if(topic&&claimTopics.has(topic))add("topic=?",topic);
+  if(type)add("claim_type=?",type);
+  if(claimEvidenceStatuses.has(evidence))add("evidence_status=?",evidence);
+  if(from&&isIsoDate(from))add("COALESCE(NULLIF(claim_date,''),substr(created_at,1,10))>=?",from);
+  if(to&&isIsoDate(to))add("COALESCE(NULLIF(claim_date,''),substr(created_at,1,10))<=?",to);
+  if(q){const term="%"+q.replace(/[\\%_]/g,"\\$&")+"%";where.push("(speaker LIKE ? ESCAPE '\\' OR quote LIKE ? ESCAPE '\\' OR context LIKE ? ESCAPE '\\')");args.push(term,term,term);}
+  const claims=await db.prepare("SELECT "+publicClaimColumns+" FROM claims WHERE "+where.join(" AND ")+" ORDER BY speaker COLLATE NOCASE ASC,COALESCE(NULLIF(claim_date,''),substr(created_at,1,10)) DESC,created_at DESC LIMIT 300").all(...args);
+  res.set("Cache-Control","no-store").json({claims:claims.map(row=>({...row,journalism_checks:safeJsonArray(row.journalism_checks)}))});
 }));
-
-app.get("/api/claims/:id", asyncHandler(async (req, res) => {
-  const claim = await db.prepare("SELECT " + publicClaimColumns + " FROM claims WHERE id=? AND status='published'").get(req.params.id);
-  if (!claim) return res.status(404).json({ error: "Checagem publicada não encontrada." });
-  const [sources, relations] = await Promise.all([
-    db.prepare("SELECT id,source_type,title,url,publisher,published_date,excerpt,notes,created_at FROM claim_sources WHERE claim_id=? ORDER BY created_at").all(claim.id),
-    db.prepare(`SELECT r.relation_type,r.explanation,c.id,c.speaker,c.quote,c.verdict
-      FROM claim_relations r JOIN claims c ON c.id=r.related_claim_id
-      WHERE r.claim_id=? AND r.editorial_status='published' AND c.status='published' ORDER BY r.created_at DESC LIMIT 100`).all(claim.id)
+app.get("/api/claims/:id", asyncHandler(async(req,res)=>{
+  const claim=await db.prepare("SELECT "+publicClaimColumns+" FROM claims WHERE id=? AND status='published'").get(req.params.id);
+  if(!claim)return res.status(404).set("Cache-Control","no-store").json({error:"Afirmação publicada não encontrada."});
+  const [sources,relations,corrections,entities]=await Promise.all([
+    db.prepare("SELECT id,source_type,side,title,url,publisher,published_date,excerpt,notes,created_at FROM claim_sources WHERE claim_id=? ORDER BY created_at").all(claim.id),
+    db.prepare("SELECT r.id,r.relation_type,r.explanation,c.id AS related_id,c.speaker AS related_speaker,c.quote AS related_quote,c.claim_date AS related_date,c.evidence_status AS related_evidence_status FROM claim_relations r JOIN claims c ON c.id=r.related_claim_id WHERE r.claim_id=? AND r.editorial_status='published' AND c.status='published' ORDER BY r.created_at DESC LIMIT 100").all(claim.id),
+    db.prepare("SELECT id,summary,details,evidence_url,review_note,created_at,reviewed_at FROM correction_reports WHERE claim_id=? AND status='accepted' ORDER BY reviewed_at DESC LIMIT 100").all(claim.id),
+    db.prepare("SELECT ce.relation_type,ce.explanation,e.id AS entity_id,e.name,e.type,e.description,e.source_url,e.source_date,e.evidence_status FROM claim_entities ce JOIN entities e ON e.id=ce.entity_id WHERE ce.claim_id=? AND e.editorial_status='published' ORDER BY e.name").all(claim.id)
   ]);
-  res.set("Cache-Control","no-store").json({
-    claim: { ...claim, journalism_checks: safeJsonArray(claim.journalism_checks) },
-    sources, relations
-  });
+  res.set("Cache-Control","no-store").json({claim:{...claim,journalism_checks:safeJsonArray(claim.journalism_checks)},sources,relations,corrections,entities});
+}));
+app.get("/api/timeline",asyncHandler(async(req,res)=>{
+  const speaker=cleanString(String(req.query.speaker||""),{max:120}),where=["status='published'"],args=[];
+  if(speaker){where.push("speaker=?");args.push(speaker);}
+  const claims=await db.prepare("SELECT id,speaker,claim_date,video_url,source_kind,timestamp,quote,context,topic,location,claim_type,evidence_status,created_at,published_at FROM claims WHERE "+where.join(" AND ")+" ORDER BY COALESCE(NULLIF(claim_date,''),substr(created_at,1,10)) ASC,created_at ASC LIMIT 500").all(...args);
+  res.set("Cache-Control","no-store").json({claims});
 }));
 
 app.get("/api/admin/claims", requireAdmin, asyncHandler(async (req, res) => {
   const status = typeof req.query.status === "string" && claimStatuses.has(req.query.status) ? req.query.status : "";
+  const adminColumns = "id,speaker,claim_date,video_url,source_kind,timestamp,quote,context,topic,location,claim_type,verdict,evidence_status,explanation,supporting_evidence,contradictory_evidence,journalism_checks,status,created_at,updated_at,published_at";
   const rows = status
-    ? await db.prepare("SELECT " + publicClaimColumns + " FROM claims WHERE status=? ORDER BY updated_at DESC LIMIT 500").all(status)
-    : await db.prepare("SELECT " + publicClaimColumns + " FROM claims ORDER BY updated_at DESC LIMIT 500").all();
+    ? await db.prepare("SELECT " + adminColumns + " FROM claims WHERE status=? ORDER BY updated_at DESC LIMIT 500").all(status)
+    : await db.prepare("SELECT " + adminColumns + " FROM claims ORDER BY updated_at DESC LIMIT 500").all();
   res.set("Cache-Control","no-store").json({ claims: rows.map(row => ({ ...row, journalism_checks: safeJsonArray(row.journalism_checks) })) });
 }));
 
 app.post("/api/admin/claims", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
   const body = req.body || {};
   const speaker = cleanString(body.speaker, { min: 1, max: 120, required: true });
+  const claimDate = body.claim_date === "" || body.claim_date === undefined ? "" : (isIsoDate(body.claim_date) ? body.claim_date : null);
+  const topic = claimTopics.has(body.topic) ? body.topic : "outros";
+  const location = cleanString(body.location || "", { max: 160 });
+  const evidenceStatus = claimEvidenceStatuses.has(body.evidence_status) ? body.evidence_status : "nao_verificado";
   const videoUrl = normalizeHttpUrl(body.video_url || "");
   const sourceKind = claimSourceTypes.has(body.source_kind) ? body.source_kind : "video_original";
   const timestamp = cleanString(body.timestamp || "", { max: 20 });
@@ -946,23 +1012,26 @@ app.post("/api/admin/claims", requireCsrf, requireAdmin, asyncHandler(async (req
   const timestampValid = sourceKind === "publicacao_x"
     ? (!timestamp || /^([0-9]{1,2}:)?[0-5][0-9]:[0-5][0-9]$/.test(timestamp))
     : /^([0-9]{1,2}:)?[0-5][0-9]:[0-5][0-9]$/.test(timestamp || "");
-  if (!speaker || !videoUrl || timestamp === null || !quote || !context || !claimType || !timestampValid) {
-    return res.status(400).json({ error: "Confira pessoa, material, fala literal, contexto e timestamp. Vídeos exigem timestamp válido; publicações no X não." });
+  if (!speaker || !videoUrl || timestamp === null || !quote || !context || !claimType || !timestampValid || claimDate === null || location === null) {
+    return res.status(400).json({ error: "Confira pessoa, material, fala literal, contexto, data e timestamp. Vídeos exigem timestamp válido; publicações no X não." });
   }
   if ([explanation,supporting,contradictory].some(value => value === null)) {
     return res.status(400).json({ error: "Um campo de evidência ou explicação excede o tamanho permitido." });
   }
-  const journalism = parseSourceUrls(body.journalism_checks);
-  const primary = parseSourceUrls(body.primary_sources);
-  if (journalism.error || primary.error) return res.status(400).json({ error: journalism.error || primary.error });
-  const id = crypto.randomUUID();
-  const statements = [{
-    sql: "INSERT INTO claims (id,speaker,video_url,source_kind,timestamp,quote,context,claim_type,verdict,explanation,supporting_evidence,contradictory_evidence,journalism_checks,status,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'draft','admin')",
-    args: [id,speaker,videoUrl,sourceKind,timestamp,quote,context,claimType,verdict,explanation,supporting,contradictory,JSON.stringify(journalism.urls)]
-  }];
-  for (const url of journalism.urls) statements.push({ sql: "INSERT INTO claim_sources (id,claim_id,source_type,url) VALUES (?,?,?,?)", args: [crypto.randomUUID(),id,"jornalistica",url] });
-  for (const url of primary.urls) statements.push({ sql: "INSERT INTO claim_sources (id,claim_id,source_type,url) VALUES (?,?,?,?)", args: [crypto.randomUUID(),id,"primaria",url] });
+  const journalism=parseSourceUrls(body.journalism_checks),primary=parseSourceUrls(body.primary_sources);
+  const supportingSources=parseSourceUrls(body.supporting_sources),contradictorySources=parseSourceUrls(body.contradictory_sources);
+  const sourceSets=[journalism,primary,supportingSources,contradictorySources];
+  if(sourceSets.some(item=>item.error))return res.status(400).json({error:sourceSets.map(item=>item.error).find(Boolean)});
+  const id=crypto.randomUUID();
+  const statements=[{sql:"INSERT INTO claims (id,speaker,claim_date,video_url,source_kind,timestamp,quote,context,topic,location,claim_type,verdict,evidence_status,explanation,supporting_evidence,contradictory_evidence,journalism_checks,status,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft','admin')",
+    args:[id,speaker,claimDate,videoUrl,sourceKind,timestamp,quote,context,topic,location,claimType,verdict,evidenceStatus,explanation,supporting,contradictory,JSON.stringify(journalism.urls)]}];
+  for(const url of journalism.urls)statements.push({sql:"INSERT INTO claim_sources (id,claim_id,source_type,side,url) VALUES (?,?,?,?,?)",args:[crypto.randomUUID(),id,"jornalistica","context",url]});
+  for(const url of primary.urls)statements.push({sql:"INSERT INTO claim_sources (id,claim_id,source_type,side,url) VALUES (?,?,?,?,?)",args:[crypto.randomUUID(),id,"primaria","context",url]});
+  for(const url of supportingSources.urls)statements.push({sql:"INSERT INTO claim_sources (id,claim_id,source_type,side,url) VALUES (?,?,?,?,?)",args:[crypto.randomUUID(),id,"outra","supports",url]});
+  for(const url of contradictorySources.urls)statements.push({sql:"INSERT INTO claim_sources (id,claim_id,source_type,side,url) VALUES (?,?,?,?,?)",args:[crypto.randomUUID(),id,"outra","contradicts",url]});
   await db.batch(statements);
+  const created=await db.prepare("SELECT * FROM claims WHERE id=?").get(id);
+  await recordClaimVersion(req,created,"created");
   await audit(req,"claim_created","claim",id);
   res.status(201).set("Cache-Control","no-store").json({ id, status: "draft" });
 }));
@@ -970,12 +1039,16 @@ app.post("/api/admin/claims", requireCsrf, requireAdmin, asyncHandler(async (req
 
 app.put("/api/admin/claims/:id", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
   const body = req.body || {};
-  const existing = await db.prepare("SELECT id,status FROM claims WHERE id=?").get(req.params.id);
+  const existing = await db.prepare("SELECT * FROM claims WHERE id=?").get(req.params.id);
   if (!existing) return res.status(404).json({ error: "Ficha não encontrada." });
   if (existing.status === "published" || existing.status === "approved") {
     return res.status(409).json({ error: "Uma ficha aprovada ou publicada precisa de uma nova revisão editorial antes de ser editada." });
   }
   const speaker = cleanString(body.speaker, { min: 1, max: 120, required: true });
+  const claimDate = body.claim_date === "" || body.claim_date === undefined ? "" : (isIsoDate(body.claim_date) ? body.claim_date : null);
+  const topic = claimTopics.has(body.topic) ? body.topic : "outros";
+  const location = cleanString(body.location || "", { max: 160 });
+  const evidenceStatus = claimEvidenceStatuses.has(body.evidence_status) ? body.evidence_status : "nao_verificado";
   const videoUrl = normalizeHttpUrl(body.video_url || "");
   const sourceKind = claimSourceTypes.has(body.source_kind) ? body.source_kind : "video_original";
   const timestamp = cleanString(body.timestamp || "", { max: 20 });
@@ -989,24 +1062,26 @@ app.put("/api/admin/claims/:id", requireCsrf, requireAdmin, asyncHandler(async (
   const timestampValid = sourceKind === "publicacao_x"
     ? (!timestamp || /^([0-9]{1,2}:)?[0-5][0-9]:[0-5][0-9]$/.test(timestamp))
     : /^([0-9]{1,2}:)?[0-5][0-9]:[0-5][0-9]$/.test(timestamp || "");
-  if (!speaker || !videoUrl || timestamp === null || !quote || !context || !claimType || !timestampValid) {
-    return res.status(400).json({ error: "Confira pessoa, material, fala literal, contexto e timestamp." });
+  if (!speaker || !videoUrl || timestamp === null || !quote || !context || !claimType || !timestampValid || claimDate === null || location === null) {
+    return res.status(400).json({ error: "Confira pessoa, material, fala literal, contexto, data e timestamp." });
   }
   if ([explanation,supporting,contradictory].some(value => value === null)) {
     return res.status(400).json({ error: "Um campo de evidência ou explicação excede o tamanho permitido." });
   }
-  const journalism = parseSourceUrls(body.journalism_checks);
-  const primary = parseSourceUrls(body.primary_sources);
-  if (journalism.error || primary.error) return res.status(400).json({ error: journalism.error || primary.error });
-  const statements = [
-    {
-      sql: "UPDATE claims SET speaker=?,video_url=?,source_kind=?,timestamp=?,quote=?,context=?,claim_type=?,verdict=?,explanation=?,supporting_evidence=?,contradictory_evidence=?,journalism_checks=?,status='draft',published_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-      args: [speaker,videoUrl,sourceKind,timestamp,quote,context,claimType,verdict,explanation,supporting,contradictory,JSON.stringify(journalism.urls),existing.id]
-    },
-    { sql: "DELETE FROM claim_sources WHERE claim_id=?", args: [existing.id] }
+  const journalism=parseSourceUrls(body.journalism_checks),primary=parseSourceUrls(body.primary_sources);
+  const supportingSources=parseSourceUrls(body.supporting_sources),contradictorySources=parseSourceUrls(body.contradictory_sources);
+  const sourceSets=[journalism,primary,supportingSources,contradictorySources];
+  if(sourceSets.some(item=>item.error))return res.status(400).json({error:sourceSets.map(item=>item.error).find(Boolean)});
+  await recordClaimVersion(req,existing,"updated");
+  const statements=[
+    {sql:"UPDATE claims SET speaker=?,claim_date=?,video_url=?,source_kind=?,timestamp=?,quote=?,context=?,topic=?,location=?,claim_type=?,verdict=?,evidence_status=?,explanation=?,supporting_evidence=?,contradictory_evidence=?,journalism_checks=?,status='draft',published_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+      args:[speaker,claimDate,videoUrl,sourceKind,timestamp,quote,context,topic,location,claimType,verdict,evidenceStatus,explanation,supporting,contradictory,JSON.stringify(journalism.urls),existing.id]},
+    {sql:"DELETE FROM claim_sources WHERE claim_id=?",args:[existing.id]}
   ];
-  for (const url of journalism.urls) statements.push({ sql: "INSERT INTO claim_sources (id,claim_id,source_type,url) VALUES (?,?,?,?)", args: [crypto.randomUUID(),existing.id,"jornalistica",url] });
-  for (const url of primary.urls) statements.push({ sql: "INSERT INTO claim_sources (id,claim_id,source_type,url) VALUES (?,?,?,?)", args: [crypto.randomUUID(),existing.id,"primaria",url] });
+  for(const url of journalism.urls)statements.push({sql:"INSERT INTO claim_sources (id,claim_id,source_type,side,url) VALUES (?,?,?,?,?)",args:[crypto.randomUUID(),existing.id,"jornalistica","context",url]});
+  for(const url of primary.urls)statements.push({sql:"INSERT INTO claim_sources (id,claim_id,source_type,side,url) VALUES (?,?,?,?,?)",args:[crypto.randomUUID(),existing.id,"primaria","context",url]});
+  for(const url of supportingSources.urls)statements.push({sql:"INSERT INTO claim_sources (id,claim_id,source_type,side,url) VALUES (?,?,?,?,?)",args:[crypto.randomUUID(),existing.id,"outra","supports",url]});
+  for(const url of contradictorySources.urls)statements.push({sql:"INSERT INTO claim_sources (id,claim_id,source_type,side,url) VALUES (?,?,?,?,?)",args:[crypto.randomUUID(),existing.id,"outra","contradicts",url]});
   await db.batch(statements);
   await audit(req,"claim_updated","claim",existing.id);
   res.set("Cache-Control","no-store").json({ id: existing.id, status: "draft" });
@@ -1018,9 +1093,11 @@ app.get("/api/admin/claims/:id", requireAdmin, asyncHandler(async (req, res) => 
   const results = await Promise.all([
     db.prepare("SELECT * FROM claim_sources WHERE claim_id=? ORDER BY created_at").all(claim.id),
     db.prepare("SELECT id,model,output_json,reviewer_decision,created_at,reviewed_at FROM claim_reviews WHERE claim_id=? ORDER BY created_at DESC").all(claim.id),
-    db.prepare("SELECT r.*,c.speaker,c.quote AS related_quote FROM claim_relations r JOIN claims c ON c.id=r.related_claim_id WHERE r.claim_id=?").all(claim.id)
+    db.prepare("SELECT r.*,c.speaker,c.quote AS related_quote FROM claim_relations r JOIN claims c ON c.id=r.related_claim_id WHERE r.claim_id=?").all(claim.id),
+    db.prepare("SELECT id,action,actor,created_at FROM claim_versions WHERE claim_id=? ORDER BY rowid DESC LIMIT 50").all(claim.id),
+    db.prepare("SELECT ce.*,e.name,e.type FROM claim_entities ce JOIN entities e ON e.id=ce.entity_id WHERE ce.claim_id=? ORDER BY e.name").all(claim.id)
   ]);
-  res.set("Cache-Control","no-store").json({ claim: { ...claim, journalism_checks: safeJsonArray(claim.journalism_checks) }, sources: results[0], reviews: results[1], relations: results[2] });
+  res.set("Cache-Control","no-store").json({ claim: { ...claim, journalism_checks: safeJsonArray(claim.journalism_checks) }, sources: results[0], reviews: results[1], relations: results[2], versions:results[3], entities:results[4] });
 }));
 
 app.post("/api/admin/claims/:id/sources", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
@@ -1029,6 +1106,7 @@ app.post("/api/admin/claims/:id/sources", requireCsrf, requireAdmin, asyncHandle
   if (!claim) return res.status(404).json({ error: "Ficha não encontrada." });
   if (claim.status === "published") return res.status(409).json({ error: "Uma ficha publicada não pode ser alterada sem reabrir a revisão editorial." });
   const sourceType = claimSourceTypes.has(body.source_type) ? body.source_type : "outra";
+  const side = ["supports","contradicts","context"].includes(body.side) ? body.side : "context";
   const url = normalizeHttpUrl(body.url || "");
   const title = cleanString(body.title || "", { max: 300 });
   const publisher = cleanString(body.publisher || "", { max: 200 });
@@ -1038,7 +1116,7 @@ app.post("/api/admin/claims/:id/sources", requireCsrf, requireAdmin, asyncHandle
   if (!url) return res.status(400).json({ error: "A fonte precisa ter URL HTTP ou HTTPS válida." });
   if ([title,publisher,publishedDate,excerpt,notes].some(value => value === null)) return res.status(400).json({ error: "Um dos campos da fonte excede o tamanho permitido." });
   const id = crypto.randomUUID();
-  await db.prepare("INSERT INTO claim_sources (id,claim_id,source_type,title,url,publisher,published_date,excerpt,notes) VALUES (?,?,?,?,?,?,?,?,?)").run(id,claim.id,sourceType,title,url,publisher,publishedDate,excerpt,notes);
+  await db.prepare("INSERT INTO claim_sources (id,claim_id,source_type,side,title,url,publisher,published_date,excerpt,notes) VALUES (?,?,?,?,?,?,?,?,?,?)").run(id,claim.id,sourceType,side,title,url,publisher,publishedDate,excerpt,notes);
   await audit(req,"claim_source_added","claim_source",id);
   res.status(201).json({ id });
 }));
@@ -1159,7 +1237,7 @@ app.get("/api/cases/:id", asyncHandler(async (req, res) => {
   if (!item) return res.status(404).set("Cache-Control","no-store").json({ error: "Caso não encontrado." });
   const people = await db.prepare("SELECT ce.id AS role_id,ce.role,ce.role_description,ce.valid_from,ce.valid_to,ce.source_url,e.id AS entity_id,e.name,e.type,e.description,e.source_url AS entity_source_url FROM case_entities ce JOIN entities e ON e.id=ce.entity_id WHERE ce.case_id=? AND ce.editorial_status='published' AND e.editorial_status='published' ORDER BY e.name").all(item.id);
   const events = await db.prepare("SELECT id,event_type,event_date,document_date,published_date,title,description,source_url,verification_status,created_at FROM case_events WHERE case_id=? AND editorial_status='published' ORDER BY COALESCE(event_date,document_date,published_date,created_at) DESC LIMIT 500").all(item.id);
-  const claims = await db.prepare("SELECT id,speaker,video_url,source_kind,timestamp,quote,context,claim_type,verdict,explanation,status,published_at FROM claims WHERE case_id=? AND status='published' ORDER BY published_at DESC LIMIT 300").all(item.id);
+  const claims = await db.prepare("SELECT id,speaker,claim_date,video_url,source_kind,timestamp,quote,context,topic,claim_type,evidence_status,status,published_at FROM claims WHERE case_id=? AND status='published' ORDER BY published_at DESC LIMIT 300").all(item.id);
   const clips = await db.prepare("SELECT id,title,video_url,start_timestamp,end_timestamp,quote,context_before,context_after,notes,created_at FROM video_clips WHERE case_id=? AND editorial_status='published' ORDER BY created_at DESC LIMIT 300").all(item.id);
   res.set("Cache-Control","no-store").json({ case:item, people, events, claims, clips:clips.map((clip) => ({...clip,start_seconds:mediaTimestampSeconds(clip.start_timestamp),end_seconds:mediaTimestampSeconds(clip.end_timestamp)})) });
 }));
@@ -1177,7 +1255,7 @@ app.get("/api/admin/cases/:id", requireAdmin, asyncHandler(async (req, res) => {
   if (!item) return res.status(404).json({ error:"Caso não encontrado." });
   const people = await db.prepare("SELECT ce.*,e.name,e.type,e.description,e.editorial_status AS person_status FROM case_entities ce JOIN entities e ON e.id=ce.entity_id WHERE ce.case_id=? ORDER BY ce.created_at DESC").all(item.id);
   const events = await db.prepare("SELECT * FROM case_events WHERE case_id=? ORDER BY COALESCE(event_date,document_date,published_date,created_at) DESC").all(item.id);
-  const claims = await db.prepare("SELECT id,speaker,quote,verdict,status,case_id FROM claims WHERE case_id=? ORDER BY updated_at DESC").all(item.id);
+  const claims = await db.prepare("SELECT id,speaker,quote,evidence_status,status,case_id FROM claims WHERE case_id=? ORDER BY updated_at DESC").all(item.id);
   const clips = await db.prepare("SELECT * FROM video_clips WHERE case_id=? ORDER BY created_at DESC").all(item.id);
   res.set("Cache-Control","no-store").json({ case:item, people, events, claims, clips });
 }));
@@ -1469,7 +1547,7 @@ app.post("/api/admin/claim-relations/:id/decision", requireCsrf, requireAdmin, a
 }));
 
 app.get("/api/contradictions", asyncHandler(async (req, res) => {
-  const rows = await db.prepare("SELECT r.id,r.explanation,r.created_at,a.id AS claim_a_id,a.speaker AS speaker_a,a.quote AS quote_a,a.verdict AS verdict_a,a.video_url AS video_a,a.timestamp AS timestamp_a,b.id AS claim_b_id,b.speaker AS speaker_b,b.quote AS quote_b,b.verdict AS verdict_b,b.video_url AS video_b,b.timestamp AS timestamp_b FROM claim_relations r JOIN claims a ON a.id=r.claim_id JOIN claims b ON b.id=r.related_claim_id WHERE r.relation_type='contradicts' AND r.editorial_status='published' AND a.status='published' AND b.status='published' ORDER BY r.published_at DESC,r.created_at DESC LIMIT 500").all();
+  const rows = await db.prepare("SELECT r.id,r.explanation,r.created_at,a.id AS claim_a_id,a.speaker AS speaker_a,a.quote AS quote_a,a.evidence_status AS evidence_status_a,a.video_url AS video_a,a.timestamp AS timestamp_a,b.id AS claim_b_id,b.speaker AS speaker_b,b.quote AS quote_b,b.evidence_status AS evidence_status_b,b.video_url AS video_b,b.timestamp AS timestamp_b FROM claim_relations r JOIN claims a ON a.id=r.claim_id JOIN claims b ON b.id=r.related_claim_id WHERE r.relation_type='contradicts' AND r.editorial_status='published' AND a.status='published' AND b.status='published' ORDER BY r.published_at DESC,r.created_at DESC LIMIT 500").all();
   res.set("Cache-Control","no-store").json({ contradictions:rows });
 }));
 
@@ -1512,6 +1590,113 @@ app.get("/api/admin/audit", requireAdmin, asyncHandler(async (req, res) => {
     console.error("Erro ao consultar auditoria.");
     res.status(500).json({ error: "Não foi possível consultar a auditoria." });
   }
+}));
+
+
+app.post("/api/admin/claims/:id/ai-review",requireCsrf,requireAdmin,asyncHandler(async(req,res)=>{
+ const claim=await db.prepare("SELECT * FROM claims WHERE id=?").get(req.params.id);
+ if(!claim)return res.status(404).json({error:"Afirmação não encontrada."});
+ if(claim.status==="published")return res.status(409).json({error:"Reabra a ficha pelo fluxo editorial antes da nova revisão."});
+ const sources=await db.prepare("SELECT source_type,side,title,url,publisher,published_date,excerpt FROM claim_sources WHERE claim_id=? ORDER BY created_at").all(claim.id);
+ const key=process.env.GEMINI_API_KEY;
+ if(!key)return res.status(503).json({error:"Configure GEMINI_API_KEY na Vercel para habilitar revisão assistida."});
+ const model=cleanString(process.env.GEMINI_MODEL||"gemini-2.5-flash",{min:1,max:100,required:true});
+ const prompt=["Assistente editorial em português brasileiro. Não dê veredito automático e não invente fatos, fontes, falas, datas ou timestamps. Use apenas os dados fornecidos. Liste lacunas, fontes primárias ausentes e divergências. Retorne JSON com resumo, pontos_a_conferir (array), fontes_primarias_ausentes (array), divergencias (array), limitacoes e aviso. IA não é prova factual e não substitui revisão humana.",JSON.stringify({speaker:claim.speaker,date:claim.claim_date,source:claim.video_url,source_kind:claim.source_kind,timestamp:claim.timestamp,quote:claim.quote,context:claim.context,topic:claim.topic,sources})].join("\n\n");
+ const response=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent?key="+encodeURIComponent(key),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json",temperature:0.1}})});
+ const payload=await response.json().catch(()=>({}));
+ if(!response.ok){console.error("Falha na revisão Gemini:",response.status);return res.status(502).json({error:"A IA não respondeu. Confira chave, modelo e limites."});}
+ const raw=(payload.candidates?.[0]?.content?.parts||[]).map(part=>part.text||"").join("\n").trim();
+ if(!raw)return res.status(502).json({error:"A IA não retornou sugestão legível."});
+ let output;try{output=JSON.parse(raw);}catch{output={texto:raw,observacao:"Resposta não estruturada; conferir manualmente."};}
+ output.aviso="Sugestão de IA: não é prova nem veredito. Confira todas as fontes e o contexto original.";
+ const id=crypto.randomUUID(),snapshot=JSON.stringify({claim:{speaker:claim.speaker,claim_date:claim.claim_date,video_url:claim.video_url,source_kind:claim.source_kind,timestamp:claim.timestamp,quote:claim.quote,context:claim.context},sources});
+ await db.prepare("INSERT INTO claim_reviews (id,claim_id,model,input_snapshot,output_json,reviewer_decision) VALUES (?,?,?,?,?,'pending')").run(id,claim.id,"Gemini "+model,snapshot,JSON.stringify(output));
+ await db.prepare("UPDATE claims SET status='in_review',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status IN ('draft','rejected','in_review')").run(claim.id);
+ await audit(req,"claim_ai_review_suggested","claim_review",id);
+ res.set("Cache-Control","no-store").json({id,model:"Gemini "+model,output,status:"in_review",warning:output.aviso});
+}));
+app.post("/api/admin/claims/:id/undo",requireCsrf,requireAdmin,asyncHandler(async(req,res)=>{
+ const current=await db.prepare("SELECT * FROM claims WHERE id=?").get(req.params.id);
+ if(!current)return res.status(404).json({error:"Afirmação não encontrada."});
+ if(current.status==="published")return res.status(409).json({error:"Retire a publicação pelo fluxo editorial antes de desfazer alterações."});
+ const previous=await db.prepare("SELECT id,snapshot_json FROM claim_versions WHERE claim_id=? AND action<>'undone' ORDER BY rowid DESC LIMIT 1").get(current.id);
+ if(!previous)return res.status(409).json({error:"Não há versão anterior disponível."});
+ let snap;try{snap=JSON.parse(previous.snapshot_json);}catch{return res.status(500).json({error:"Versão armazenada inválida."});}
+ const old=snap.claim||snap;if(!old||old.id!==current.id)return res.status(500).json({error:"A versão não corresponde à ficha."});
+ const fields=["speaker","claim_date","video_url","source_kind","timestamp","quote","context","topic","location","claim_type","verdict","evidence_status","explanation","supporting_evidence","contradictory_evidence","journalism_checks"];
+ const defaults={claim_date:"",topic:"outros",location:"",evidence_status:"nao_verificado",source_kind:"video_original",timestamp:"",context:"",claim_type:"factual",verdict:"nao_verificada",explanation:"",supporting_evidence:"",contradictory_evidence:"",journalism_checks:"[]"};
+ await recordClaimVersion(req,current,"undo");
+ await db.prepare("UPDATE claims SET "+fields.map(key=>key+"=?").join(",")+",status='draft',published_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(...fields.map(key=>old[key]??defaults[key]??""),current.id);
+ await db.prepare("DELETE FROM claim_sources WHERE claim_id=?").run(current.id);
+ for(const source of (Array.isArray(snap.sources)?snap.sources:[])){const url=normalizeHttpUrl(source.url||"");if(!url)continue;await db.prepare("INSERT INTO claim_sources (id,claim_id,source_type,side,title,url,publisher,published_date,excerpt,notes) VALUES (?,?,?,?,?,?,?,?,?,?)").run(crypto.randomUUID(),current.id,source.source_type||"outra",["supports","contradicts","context"].includes(source.side)?source.side:"context",source.title||"",url,source.publisher||"",source.published_date||"",source.excerpt||"",source.notes||"");}
+ await db.prepare("UPDATE claim_versions SET action='undone' WHERE id=?").run(previous.id);
+ await audit(req,"claim_undo","claim",current.id);
+ res.set("Cache-Control","no-store").json({id:current.id,status:"draft",message:"Versão anterior restaurada; revise novamente antes de publicar."});
+}));
+const correctionLimiter=rateLimit({windowMs:3600000,max:6,standardHeaders:true,legacyHeaders:false});
+app.post("/api/claims/:id/corrections",correctionLimiter,requireCsrf,asyncHandler(async(req,res)=>{
+ const claim=await db.prepare("SELECT id FROM claims WHERE id=? AND status='published'").get(req.params.id);
+ if(!claim)return res.status(404).json({error:"Afirmação publicada não encontrada."});
+ const summary=cleanString(req.body?.summary,{min:5,max:200,required:true}),details=cleanString(req.body?.details||"",{max:2000}),evidenceUrl=normalizeHttpUrl(req.body?.evidence_url||"");
+ if(!summary||details===null||evidenceUrl===null)return res.status(400).json({error:"Descreva a correção e informe URL HTTP(S) válida, se houver."});
+ const id=crypto.randomUUID();await db.prepare("INSERT INTO correction_reports (id,claim_id,summary,details,evidence_url) VALUES (?,?,?,?,?)").run(id,claim.id,summary,details,evidenceUrl);await audit(req,"public_correction_submitted","claim",claim.id);
+ res.status(201).json({id,status:"pending",message:"Correção encaminhada à triagem; ainda não publicada."});
+}));
+app.get("/api/admin/corrections",requireAdmin,asyncHandler(async(req,res)=>{
+ const value=String(req.query.status||"pending"),status=["pending","accepted","rejected"].includes(value)?value:"pending";
+ const reports=await db.prepare("SELECT cr.*,c.speaker,c.quote AS claim_quote FROM correction_reports cr JOIN claims c ON c.id=cr.claim_id WHERE cr.status=? ORDER BY cr.created_at ASC LIMIT 300").all(status);
+ res.set("Cache-Control","no-store").json({reports});
+}));
+app.put("/api/admin/corrections/:id",requireCsrf,requireAdmin,asyncHandler(async(req,res)=>{
+ const status=["pending","accepted","rejected"].includes(req.body?.status)?req.body.status:null,note=cleanString(req.body?.review_note||"",{max:1500});
+ if(!status||note===null)return res.status(400).json({error:"Estado ou nota da correção inválidos."});
+ const result=await db.prepare("UPDATE correction_reports SET status=?,review_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?").run(status,note,req.params.id);
+ if(!result.changes)return res.status(404).json({error:"Correção não encontrada."});await audit(req,"correction_"+status,"correction_report",req.params.id);res.json({id:req.params.id,status});
+}));
+const topicVoteLabels={saude:"Saúde",economia:"Economia",seguranca:"Segurança",educacao:"Educação",meio_ambiente:"Meio ambiente",corrupcao:"Transparência e corrupção",trabalho:"Trabalho",direitos:"Direitos e cidadania",politica_externa:"Política externa",outros:"Outros temas"};
+function topicVoteKey(req,res){const start="fs_topic_key=",part=String(req.headers.cookie||"").split(";").map(v=>v.trim()).find(v=>v.startsWith(start));let token=part?decodeURIComponent(part.slice(start.length)):"";if(!/^[a-f0-9-]{36}$/i.test(token)){token=crypto.randomUUID();res.cookie("fs_topic_key",token,{httpOnly:true,sameSite:"lax",secure:IS_PRODUCTION,path:"/",maxAge:366*86400000});}return crypto.createHash("sha256").update(token).digest("hex");}
+const topicVoteLimiter=rateLimit({windowMs:3600000,max:20,standardHeaders:true,legacyHeaders:false});
+app.post("/api/topic-votes",topicVoteLimiter,requireCsrf,asyncHandler(async(req,res)=>{
+ const topic=claimTopics.has(req.body?.topic)?req.body.topic:null,country=cleanString(req.body?.country||"",{max:60}),state=cleanString(req.body?.state||"",{max:100}),city=cleanString(req.body?.city||"",{max:100});
+ const safeRegion=value=>!/https?:|@|[<>]/i.test(value||"");
+ if(!topic||country===null||state===null||city===null||![country,state,city].every(safeRegion))return res.status(400).json({error:"Escolha tema e confira os campos regionais opcionais."});
+ const period=new Date().toISOString().slice(0,7),key=topicVoteKey(req,res);
+ await db.prepare("INSERT INTO topic_votes (id,poll_period,topic,country,state,city,vote_key) VALUES (?,?,?,?,?,?,?) ON CONFLICT(poll_period,vote_key) DO UPDATE SET topic=excluded.topic,country=excluded.country,state=excluded.state,city=excluded.city,updated_at=CURRENT_TIMESTAMP").run(crypto.randomUUID(),period,topic,country,state,city,key);
+ res.set("Cache-Control","no-store").status(201).json({ok:true,period,message:"Preferência temática registrada; pode ser alterada durante este mês."});
+}));
+app.get("/api/topic-votes/results",asyncHandler(async(req,res)=>{
+ const period=/^\\d{4}-\\d{2}$/.test(String(req.query.period||""))?String(req.query.period):new Date().toISOString().slice(0,7);
+ const rows=await db.prepare("SELECT topic,COUNT(*) AS votes FROM topic_votes WHERE poll_period=? GROUP BY topic ORDER BY votes DESC,topic ASC").all(period),totalRow=await db.prepare("SELECT COUNT(*) AS total FROM topic_votes WHERE poll_period=?").get(period),total=Number(totalRow?.total||0);
+ const topics=rows.map(row=>({topic:row.topic,label:topicVoteLabels[row.topic]||row.topic,votes:Number(row.votes||0),percentage:total?Math.round(Number(row.votes||0)*1000/total)/10:0}));
+ const regions=await db.prepare("SELECT country,state,city,COUNT(*) AS votes FROM topic_votes WHERE poll_period=? AND (country<>'' OR state<>'' OR city<>'') GROUP BY country,state,city HAVING COUNT(*)>=3 ORDER BY votes DESC LIMIT 50").all(period);
+ res.set("Cache-Control","no-store").json({period,total,topics,regions:regions.map(row=>({country:row.country,state:row.state,city:row.city,votes:Number(row.votes||0)})),region_note:"Regiões informadas voluntariamente; não são verificadas por geolocalização."});
+}));
+const analyticsLimiter=rateLimit({windowMs:3600000,max:300,standardHeaders:true,legacyHeaders:false}),analyticsPaths=new Set(["/","/debates.html","/investigations.html","/comparar.html","/votacao.html"]);
+async function trackAggregate(event,resource){const day=new Date().toISOString().slice(0,10);await db.prepare("INSERT INTO aggregate_analytics (id,day,event,resource,count) VALUES (?,?,?,?,1) ON CONFLICT(day,event,resource) DO UPDATE SET count=count+1,updated_at=CURRENT_TIMESTAMP").run(crypto.randomUUID(),day,event,resource);}
+app.post("/api/analytics",analyticsLimiter,requireCsrf,asyncHandler(async(req,res)=>{
+ const event=["page_view","search","claim_view"].includes(req.body?.event)?req.body.event:null;let resource=cleanString(req.body?.resource||"",{min:1,max:120,required:true});
+ if(!event||!resource)return res.status(400).json({error:"Evento analítico inválido."});
+ if(event==="claim_view"){const match=/^claim:([a-f0-9-]{20,80})$/i.exec(resource);if(!match)return res.status(400).json({error:"Ficha analítica inválida."});const claim=await db.prepare("SELECT id FROM claims WHERE id=? AND status='published'").get(match[1]);if(!claim)return res.status(404).json({error:"Afirmação publicada não encontrada."});resource="claim:"+claim.id;}
+ else if(!analyticsPaths.has(resource))return res.status(400).json({error:"Página fora da lista permitida."});
+ await trackAggregate(event,resource);res.status(202).json({ok:true});
+}));
+app.get("/api/admin/analytics",requireAdmin,asyncHandler(async(req,res)=>{
+ const [events,frequent,views]=await Promise.all([
+ db.prepare("SELECT event,resource,SUM(count) AS total FROM aggregate_analytics WHERE day>=date('now','-30 days') GROUP BY event,resource ORDER BY total DESC LIMIT 100").all(),
+ db.prepare("SELECT c.id,c.speaker,substr(c.quote,1,180) AS quote,COUNT(cr.id) AS corrections FROM correction_reports cr JOIN claims c ON c.id=cr.claim_id GROUP BY c.id,c.speaker,c.quote ORDER BY corrections DESC LIMIT 20").all(),
+ db.prepare("SELECT c.id,c.speaker,substr(c.quote,1,180) AS quote,SUM(a.count) AS views FROM aggregate_analytics a JOIN claims c ON a.resource='claim:'||c.id WHERE a.event='claim_view' AND a.day>=date('now','-30 days') AND c.status='published' GROUP BY c.id,c.speaker,c.quote ORDER BY views DESC LIMIT 20").all()
+ ]);
+ res.set("Cache-Control","no-store").json({period_days:30,events:events.map(x=>({event:x.event,resource:x.resource,count:Number(x.total||0)})),frequently_corrected:frequent.map(x=>({...x,corrections:Number(x.corrections||0)})),most_viewed_claims:views.map(x=>({...x,views:Number(x.views||0)})),privacy:"Contagens agregadas; sem IP, identidade do visitante ou texto de busca."});
+}));
+app.get("/api/admin/quality",requireAdmin,asyncHandler(async(req,res)=>{
+ const [total,missing,stale,corrections,reviews]=await Promise.all([
+ db.prepare("SELECT COUNT(*) AS count FROM claims").get(),
+ db.prepare("SELECT COUNT(*) AS count FROM claims c WHERE NOT EXISTS (SELECT 1 FROM claim_sources s WHERE s.claim_id=c.id)").get(),
+ db.prepare("SELECT COUNT(*) AS count FROM claims c WHERE c.status='published' AND COALESCE((SELECT MAX(r.reviewed_at) FROM claim_reviews r WHERE r.claim_id=c.id),c.published_at,c.created_at)<datetime('now','-180 days')").get(),
+ db.prepare("SELECT COUNT(*) AS count FROM correction_reports WHERE status='pending'").get(),
+ db.prepare("SELECT COUNT(*) AS count FROM claim_reviews WHERE reviewer_decision='pending'").get()
+ ]);
+ res.set("Cache-Control","no-store").json({total_claims:Number(total?.count||0),missing_external_sources:Number(missing?.count||0),published_not_reviewed_recently:Number(stale?.count||0),pending_corrections:Number(corrections?.count||0),pending_reviews:Number(reviews?.count||0),note:"Links não são visitados automaticamente por segurança; revise as fontes manualmente."});
 }));
 
 app.use(express.static(publicDir, {
