@@ -581,6 +581,7 @@ const loginLimiter = rateLimit({
   message: { error: "Muitas tentativas de login. Aguarde antes de tentar novamente." }
 });
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+const GEMINI_MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-3.8-flash";
 const verificationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
@@ -624,7 +625,7 @@ app.post("/api/admin/verify-evidence", verificationLimiter, requireCsrf, require
   ].join("\n\n");
 
   try {
-    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY.trim() },
       body: JSON.stringify({
@@ -634,7 +635,8 @@ app.post("/api/admin/verify-evidence", verificationLimiter, requireCsrf, require
       signal: AbortSignal.timeout(30000)
     });
     if (!response.ok) {
-      console.error("Gemini evidence review returned HTTP", response.status);
+      const details = (await response.text().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 500);
+      console.error("Gemini evidence review returned HTTP", response.status, details);
       return res.status(502).json({ error: "O Gemini não conseguiu concluir a revisão agora. Tente novamente mais tarde." });
     }
     const payload = await response.json();
@@ -735,13 +737,17 @@ async function summarizeExtractedSource(source) {
     "Título HTML: " + (source.title || "(ausente)"),
     "Texto extraído:\n" + source.text
   ].join("\n\n");
-  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY.trim() },
     body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, responseMimeType: "application/json" } }),
     signal: AbortSignal.timeout(30000)
   });
-  if (!response.ok) throw new Error("Gemini respondeu HTTP " + response.status + ".");
+  if (!response.ok) {
+    const details = (await response.text().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 500);
+    console.error("Gemini source summary returned HTTP", response.status, details);
+    throw new Error("Gemini respondeu HTTP " + response.status + (details ? ": " + details : "."));
+  }
   const payload = await response.json();
   const raw = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
   if (!raw) throw new Error("Gemini retornou resposta vazia.");
