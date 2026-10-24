@@ -39,6 +39,7 @@ jobs:
         run: |
           node --check public/js/app.js
           node --check public/js/debates.js
+          node --check public/js/investigations.js
           node --check src/js/app.js
 
       - name: Run tests
