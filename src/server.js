@@ -338,7 +338,9 @@ async function initializeDatabase() {
 await initializeDatabase();
 
 function getTursoSourcesBaseUrl() {
-  if (!TURSO_URL.trim() || !TURSO_TOKEN.trim()) {
+  // Use optional chaining: variáveis ausentes não podem virar TypeError
+  // antes de identificarmos corretamente a configuração ausente.
+  if (!TURSO_URL?.trim() || !TURSO_TOKEN?.trim()) {
     const error = new Error("Integração com Turso não configurada.");
     error.code = "TURSO_NOT_CONFIGURED";
     throw error;
@@ -790,11 +792,12 @@ app.get("/api/admin/sources", requireAdmin, async (req, res) => {
     res.set("Cache-Control", "no-store").json({ sources });
   } catch (error) {
     const notConfigured = error?.code === "TURSO_NOT_CONFIGURED";
-    console.error("Não foi possível consultar as fontes do Turso.");
-    res.status(notConfigured ? 503 : 502).json({
+    // Logar apenas a mensagem técnica evita expor tokens ou dados da fila.
+    console.error("Falha na consulta da fila Turso:", error?.code || error?.name || "Error", error?.message || "sem detalhes");
+    res.set("Cache-Control", "no-store").status(notConfigured ? 503 : 502).json({
       error: notConfigured
-        ? "Configure TURSO_DATABASE_URL e TURSO_AUTH_TOKEN no ambiente do servidor para habilitar a fila de fontes."
-        : "Não foi possível carregar as fontes do Turso. Confira a URL, o token e a tabela source_queue."
+        ? "Integração com Turso não configurada. Confira HOST_TURSO/TOKEN_TURSO ou TURSO_DATABASE_URL/TURSO_AUTH_TOKEN na Vercel."
+        : "Não foi possível carregar a fila de fontes do Turso. Confira a URL, o token, o acesso ao banco e a tabela source_queue."
     });
   }
 });
