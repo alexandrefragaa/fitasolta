@@ -47,17 +47,16 @@ const hasLegacyTursoPair = Boolean(process.env.HOST_TURSO && process.env.TOKEN_T
 const TURSO_URL = hasLegacyTursoPair ? process.env.HOST_TURSO : process.env.TURSO_DATABASE_URL;
 const TURSO_TOKEN = hasLegacyTursoPair ? process.env.TOKEN_TURSO : process.env.TURSO_AUTH_TOKEN;
 
-if (!TURSO_URL || !TURSO_TOKEN) {
-  throw new Error(
-    "Configuração do Turso incompleta: configure TURSO_DATABASE_URL e TURSO_AUTH_TOKEN " +
-    "(ou configure juntos HOST_TURSO e TOKEN_TURSO) neste ambiente."
-  );
-}
-
-const libsqlClient = createClient({
+const databaseConfigured = Boolean(TURSO_URL && TURSO_TOKEN);
+const libsqlClient = databaseConfigured ? createClient({
   url: TURSO_URL,
   authToken: TURSO_TOKEN
-});
+}) : null;
+let databaseReady = false;
+
+if (!databaseConfigured) {
+  console.error("Banco de dados não configurado neste ambiente. Configure um par de URL e token Turso.");
+}
 
 // Converte as linhas do libSQL para objetos simples com nomes de colunas.
 function rowsAsObjects(result) {
@@ -67,19 +66,28 @@ function rowsAsObjects(result) {
 }
 
 // Compatibilidade assíncrona com os métodos usados no restante do servidor.
+function requireDatabaseClient() {
+  if (!libsqlClient) {
+    const error = new Error("Banco Turso não configurado neste ambiente.");
+    error.code = "DATABASE_NOT_CONFIGURED";
+    throw error;
+  }
+  return libsqlClient;
+}
+
 const db = {
   prepare(sql) {
     return {
       async all(...args) {
-        const result = await libsqlClient.execute({ sql, args });
+        const result = await requireDatabaseClient().execute({ sql, args });
         return rowsAsObjects(result);
       },
       async get(...args) {
-        const result = await libsqlClient.execute({ sql, args });
+        const result = await requireDatabaseClient().execute({ sql, args });
         return result.rows.length ? rowsAsObjects(result)[0] : undefined;
       },
       async run(...args) {
-        const result = await libsqlClient.execute({ sql, args });
+        const result = await requireDatabaseClient().execute({ sql, args });
         return {
           changes: Number(result.rowsAffected || 0),
           lastInsertRowid: result.lastInsertRowid
@@ -88,13 +96,13 @@ const db = {
     };
   },
   exec(sql) {
-    return libsqlClient.executeMultiple(sql);
+    return requireDatabaseClient().executeMultiple(sql);
   },
   batch(statements) {
-    return libsqlClient.batch(statements, "write");
+    return requireDatabaseClient().batch(statements, "write");
   },
   close() {
-    libsqlClient.close();
+    if (libsqlClient) libsqlClient.close();
   }
 };
 
@@ -262,7 +270,14 @@ async function initializeDatabase() {
   `);
 }
 
-await initializeDatabase();
+if (databaseConfigured) {
+  try {
+    await initializeDatabase();
+    databaseReady = true;
+  } catch (error) {
+    console.error("Falha ao inicializar o banco Turso:", error?.code || "erro de inicialização");
+  }
+}
 
 /* Auditoria: registra um hash do IP, não o IP em texto aberto. */
 function getIpHash(ip) {
@@ -393,11 +408,28 @@ const loginLimiter = rateLimit({
   message: { error: "Muitas tentativas de login. Aguarde antes de tentar novamente." }
 });
 app.get("/api/health", asyncHandler(async (req, res) => {
+  if (!databaseConfigured) {
+    return res.status(503).set("Cache-Control", "no-store").json({
+      ok: false, app: "FitaSolta", database: "not_configured",
+      error: "Este ambiente não tem um par de URL e token do Turso configurado."
+    });
+  }
+  if (!databaseReady) {
+    return res.status(503).set("Cache-Control", "no-store").json({
+      ok: false, app: "FitaSolta", database: "initialization_failed",
+      error: "O banco está configurado, mas a inicialização falhou. Confira a URL, o token e o schema."
+    });
+  }
   try {
     await db.prepare("SELECT 1").get();
-    res.set("Cache-Control", "no-store").json({ ok: true, app: "FitaSolta", database: "connected" });
+    return res.set("Cache-Control", "no-store").json({
+      ok: true, app: "FitaSolta", database: "connected"
+    });
   } catch {
-    res.status(503).json({ ok: false, error: "Banco de dados indisponível." });
+    return res.status(503).set("Cache-Control", "no-store").json({
+      ok: false, app: "FitaSolta", database: "unavailable",
+      error: "Banco de dados indisponível."
+    });
   }
 }));
 
@@ -1018,7 +1050,12 @@ app.use("/api", (req, res) => {
 
 app.use((error, req, res, next) => {
   if (res.headersSent) return next(error);
-  console.error("Erro interno do servidor:", error?.message || "erro desconhecido");
+  if (error?.code === "DATABASE_NOT_CONFIGURED" || !databaseReady) {
+    return res.status(503).set("Cache-Control", "no-store").json({
+      error: "A API está temporariamente indisponível porque o banco Turso não está pronto neste ambiente."
+    });
+  }
+  console.error("Erro interno do servidor:", error?.code || "erro desconhecido");
   return res.status(500).json({ error: "Ocorreu um erro interno. Tente novamente." });
 });
 
