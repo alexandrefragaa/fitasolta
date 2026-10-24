@@ -5,13 +5,18 @@ import { Script } from "node:vm";
 
 const html = readFileSync(new URL("../public/debates.html", import.meta.url), "utf8");
 const debateScript = readFileSync(new URL("../public/js/debates.js", import.meta.url), "utf8");
+const debateStyles = readFileSync(new URL("../public/css/debates.css", import.meta.url), "utf8");
 const inlineScripts = [...html.matchAll(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/gi)]
   .map((match) => match[1])
   .filter((source) => source.trim());
 
-test("debates page uses a valid external script compatible with the strict CSP", () => {
+test("debates page uses external script and stylesheet compatible with the strict CSP", () => {
   assert.equal(inlineScripts.length, 0, "inline JavaScript is blocked by the production CSP");
+  assert.equal([...html.matchAll(/<style\b[^>]*>/gi)].length, 0, "inline CSS is blocked by the production CSP");
   assert.ok(html.includes('<script src="/js/debates.js" defer></script>'));
+  assert.ok(html.includes('<link rel="stylesheet" href="/css/debates.css">'));
+  assert.ok(debateStyles.includes(".video-frame iframe"));
+  assert.ok(debateStyles.includes("@media(max-width:600px)"));
   assert.doesNotThrow(() => new Script(debateScript));
   const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
   assert.match(server, /frameSrc:.*youtube-nocookie\.com.*youtube\.com/);
@@ -21,8 +26,8 @@ test("evidence workflow exposes save, public claims and private editorial queue"
   assert.match(html, /id="save-record"/);
   assert.match(html, /id="published-claims"/);
   assert.match(html, /id="admin-claims" hidden/);
-  assert.match(html, /\/api\/admin\/claims/);
-  assert.match(html, /\/api\/claims/);
+  assert.match(debateScript, /\/api\/admin\/claims/);
+  assert.match(debateScript, /\/api\/claims/);
 });
 
 test("evidence page preserves original video and X source links", () => {
