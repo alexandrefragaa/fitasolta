@@ -423,7 +423,7 @@ async function readTursoSourceQueue() {
         {
           type: "execute",
           stmt: {
-            sql: "SELECT id, url, status, title, summary, error_message, created_at, updated_at FROM source_queue ORDER BY created_at DESC LIMIT 200"
+            sql: "SELECT id, url, status, title, summary, error_message, created_at, updated_at, raw_text, original_url, media_url, media_type FROM source_queue ORDER BY created_at DESC LIMIT 200"
           }
         },
         { type: "close" }
@@ -459,7 +459,11 @@ async function readTursoSourceQueue() {
 
     return {
       id: String(record.id || ""),
-      url: sanitizeTursoSourceUrl(record.url),
+      url: String(record.media_type || "") === "text" ? "" : sanitizeTursoSourceUrl(record.original_url || record.url),
+      original_url: sanitizeTursoSourceUrl(record.original_url || ""),
+      raw_text: String(record.raw_text || ""),
+      media_url: sanitizeTursoSourceUrl(record.media_url || "") || "",
+      media_type: ["text", "video", "image", "link"].includes(String(record.media_type || "")) ? String(record.media_type) : "link",
       status,
       title: String(record.title || ""),
       summary: String(record.summary || ""),
@@ -1161,15 +1165,48 @@ const processSourcesLimiter = rateLimit({
 });
 
 
+
 async function processSourceItems(req,sources){
- const results=[];
+ const results=[],verificationBudget={remaining:1};
  for(const source of sources){try{
   await updateTursoSource(source.id,"processing",source.title,source.summary,"");
-  const extracted=await extractSourcePage(source.url),review=await summarizeExtractedSource(extracted);
+  let extracted;
+  if(source.raw_text){
+   const originalUrl=source.original_url||"",mediaUrl=source.media_url||originalUrl,video=parseYouTubeReference(mediaUrl),imageUrl=source.media_type==="image"?mediaUrl:"";
+   let linkedPage=null;
+   if(originalUrl&&source.media_type!=="text"&&!video&&!imageUrl){try{linkedPage=await extractSourcePage(originalUrl)}catch{}}
+   const imageData=imageUrl?await downloadImageForAnalysis(imageUrl):null;
+   const transcript=video?await fetchYouTubeTranscriptById(video.video_id):"";
+   const text=[source.raw_text,linkedPage&&linkedPage.text?linkedPage.text:"",transcript?"TRANSCRIÇÃO PÚBLICA DO VÍDEO:\n"+transcript:""].filter(Boolean).join("\n\n").slice(0,18000);
+   extracted={title:source.title||(linkedPage&&linkedPage.title)||"Material enviado",text,url:originalUrl,original_url:originalUrl,
+    media_url:mediaUrl,media_type:source.media_type||(video?"video":imageUrl?"image":"text"),image_url:imageUrl,imageData,
+    video_id:video?video.video_id:"",video_start:video?video.video_start:0,video_source_url:video?video.video_url:"",
+    transcript_available:Boolean(transcript),transcript};
+  }else{
+   extracted=await extractSourcePage(source.original_url||source.url);
+   if(source.media_url){
+    const video=parseYouTubeReference(source.media_url);
+    if(video&&!extracted.video_id){
+     extracted.video_id=video.video_id;extracted.video_start=video.video_start;extracted.video_source_url=video.video_url;extracted.media_url=video.video_url;extracted.media_type="video";
+     if(!extracted.transcript){const transcript=await fetchYouTubeTranscriptById(video.video_id);if(transcript){extracted.transcript=transcript;extracted.transcript_available=true;extracted.text+="\nTRANSCRIÇÃO DO VÍDEO INCORPORADO:\n"+transcript}}
+    }else if(!extracted.media_url){extracted.media_url=source.media_url;extracted.media_type=source.media_type||"link"}
+    if(source.media_type==="image"&&!extracted.image_url){extracted.image_url=source.media_url;extracted.imageData=await downloadImageForAnalysis(source.media_url)}
+   }
+  }
+  const review=await summarizeExtractedSource(extracted);
+  if(review.candidate_claim&&verificationBudget.remaining>0){
+   review.fact_check=await verifyCandidateClaimAutomatically(review.candidate_claim,Object.assign({},extracted,review),verificationBudget);
+  }else if(review.candidate_claim){
+   review.fact_check={verdict:review.candidate_claim.verifiable?"nao_verificada":"opiniao_previsao",confidence:"baixa",
+    explanation:review.candidate_claim.verifiable?"A fala foi identificada; a pesquisa externa ficou pendente para a próxima execução automática.":"Este tipo de conteúdo não recebe veredito factual automático.",
+    supporting_evidence:"",contradictory_evidence:"",context_note:"",supporting_sources:[],contradictory_sources:[],searched_sources:[],verified_at:new Date().toISOString(),method:"checagem pendente"};
+  }
   await updateTursoSource(source.id,"completed",review.title,formatStructuredSourceSummary(review),review.source_limitations||"");
-  try{await persistSourceConnections(source,review)}catch(e){console.warn("Fonte concluída; conexões parciais:",e?.name||"Error")}
-  await audit(req,"source_processed","source_queue",source.id);results.push({id:source.id,url:source.url,status:"completed",title:review.title});
- }catch(error){const message=String(error?.message||"Falha no processamento").slice(0,350);await updateTursoSource(source.id,"error",source.title,source.summary,message).catch(()=>{});console.error("Falha ao processar fonte",String(source.id||"").slice(0,80),message);results.push({id:source.id,url:source.url,status:"error",error:message})}}
+  try{await persistSourceConnections(Object.assign({},source,{original_url:extracted.original_url||source.original_url||"",url:extracted.original_url||source.original_url||source.url||""}),review)}
+  catch(e){console.warn("Fonte concluída; conexões incompletas:",e&&e.name||"Error",String(e&&e.message||"").slice(0,180))}
+  await audit(req,"source_processed","source_queue",source.id);
+  results.push({id:source.id,url:extracted.original_url||source.original_url||source.url,status:"completed",title:review.title,hasClaim:Boolean(review.candidate_claim),verdict:review.fact_check&&review.fact_check.verdict||""});
+ }catch(error){const message=String(error&&error.message||"Falha no processamento").slice(0,350);await updateTursoSource(source.id,"error",source.title,source.summary,message).catch(()=>{});console.error("Falha ao processar fonte",String(source.id||"").slice(0,80),message);results.push({id:source.id,url:source.original_url||source.url,status:"error",error:message})}}
  return{ok:true,processed:results.length,completed:results.filter((x)=>x.status==="completed").length,errors:results.filter((x)=>x.status==="error").length,results};
 }
 
@@ -1232,6 +1269,50 @@ app.get("/api/admin/sources", requireAdmin, async (req, res) => {
   }
 });
 
+
+
+app.post("/api/admin/sources", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
+  const urlsInput = typeof req.body?.urls === "string" ? req.body.urls : "";
+  const rawText = cleanString(req.body?.raw_text || "", { max: 12000 }) || "";
+  const mediaInput = normalizeHttpUrl(req.body?.media_url || "");
+  const titleInput = cleanString(req.body?.title || "", { max: 250 }) || "";
+  const urls = [...new Set(urlsInput.split(/\r?\n/).map((line) => line.trim()).filter(Boolean))];
+  if (urls.length > 20) return res.status(400).json({ error: "Envie no máximo 20 links por lote." });
+  if (urls.length > 1 && rawText) return res.status(400).json({ error: "Para associar texto colado, envie apenas um link por vez." });
+  if (req.body?.media_url && !mediaInput) return res.status(400).json({ error: "O link de vídeo/imagem precisa ser HTTP ou HTTPS válido." });
+  if (!urls.length && !rawText && !mediaInput) return res.status(400).json({ error: "Cole ao menos um link, texto/transcrição ou link de mídia." });
+  if (!urls.length && !rawText && mediaInput) urls.push(mediaInput);
+
+  const queue = await readTursoSourceQueue();
+  const existing = new Set(queue.map((item) => sourceIdentityKey(item.original_url || item.url)).filter(Boolean));
+  const added = [], skipped = [];
+  const candidates = urls.length ? urls : [""];
+  for (const candidate of candidates) {
+    const originalUrl = candidate ? normalizeHttpUrl(candidate) : null;
+    if (candidate && !originalUrl) { skipped.push({ url: candidate.slice(0, 300), reason: "URL inválida" }); continue; }
+    const id = crypto.randomUUID();
+    const textOnly = !originalUrl && Boolean(rawText);
+    const video = parseYouTubeReference(mediaInput || originalUrl || "");
+    const imageUrl = mediaInput || originalUrl || "";
+    const looksImage = /\.(?:jpe?g|png|webp|gif|avif)(?:$|[?#])/i.test(imageUrl);
+    const mediaUrl = mediaInput || (video ? video.video_url : (looksImage ? imageUrl : ""));
+    const mediaType = textOnly ? "text" : (video ? "video" : (looksImage ? "image" : (mediaUrl ? "link" : "link")));
+    const dedupeKey = sourceIdentityKey(originalUrl || mediaUrl);
+    if (dedupeKey && existing.has(dedupeKey)) { skipped.push({ url: originalUrl || mediaUrl, reason: "Já existe na fila ou no mural" }); continue; }
+    const storedUrl = originalUrl || (textOnly ? "https://fitasolta.vercel.app/#material-" + id : (mediaUrl || ""));
+    if (!storedUrl) { skipped.push({ url: "", reason: "Material sem link ou texto" }); continue; }
+    await db.prepare("INSERT INTO source_queue (id,url,status,title,summary,error_message,raw_text,original_url,media_url,media_type) VALUES (?, ?, 'pending', ?, '', '', ?, ?, ?, ?)")
+      .run(id, storedUrl, titleInput || (textOnly ? "Texto enviado ao radar" : originalUrl || mediaUrl || "Material enviado"),
+        urls.length === 1 ? rawText : "", originalUrl || "", mediaUrl || "", mediaType);
+    if (dedupeKey) existing.add(dedupeKey);
+    added.push({ id, url: originalUrl || "", title: titleInput || (textOnly ? "Texto enviado ao radar" : originalUrl || mediaUrl), media_type: mediaType });
+  }
+  await audit(req, "source_materials_added", "source_queue", added.map((item) => item.id).join(","));
+  res.set("Cache-Control", "no-store").status(added.length ? 201 : 200).json({
+    ok: true, added: added.length, skipped, sources: added,
+    message: added.length + " material(is) enviado(s) para processamento automático."
+  });
+}));
 
 app.get("/api/health", asyncHandler(async (req, res) => {
   try {
@@ -1598,13 +1679,26 @@ app.get("/api/sources", asyncHandler(async (req,res)=>{
    db.prepare("SELECT COUNT(*) AS total FROM relationships").get()
   ]);
   const map=new Map();
-  for(const s of queue){if(s.status!=="completed"||!s.url)continue;const category=s.summary.match(/^Categoria:\s*([^\n]+)/m)?.[1]?.trim()||"Outros";map.set(sourceIdentityKey(s.url)||s.url,{id:s.id,url:s.url,title:s.title||s.url,summary:s.summary||"",description:s.summary||"",status:"completed",category,references:0,created_at:s.created_at,updated_at:s.updated_at})}
-  for(const r of registered){if(!r.url)continue;const key=sourceIdentityKey(r.url)||r.url,old=map.get(key);if(old)old.references+=Number(r.reference_count||0);else map.set(key,{id:"",url:r.url,title:r.title||r.url,summary:r.description||"",description:r.description||"",status:"registered",category:"Outros",references:Number(r.reference_count||0),created_at:"",updated_at:""})}
-  const sources=[...map.values()].sort((a,b)=>(Date.parse(b.updated_at||b.created_at||"")||0)-(Date.parse(a.updated_at||a.created_at||"")||0)||a.title.localeCompare(b.title,"pt-BR")),done=queue.filter((x)=>x.status==="completed");
-  const stats={published:sources.length,completed:done.length,pending:queue.filter((x)=>x.status==="pending").length,processing:queue.filter((x)=>x.status==="processing").length,errors:queue.filter((x)=>x.status==="error").length,connections:Number(relationCount?.total||0),entities:Number(entityCount?.total||0),lastUpdated:done.map((x)=>x.updated_at).filter(Boolean).sort().at(-1)||""};
+  for(const item of queue){
+   if(item.status!=="completed")continue;
+   const publicUrl=item.original_url||(item.media_type==="text"?"":item.url||"");
+   const category=item.summary.match(/^Categoria:\s*([^\n]+)/m)?.[1]?.trim()||"Outros";
+   const key=sourceIdentityKey(publicUrl)||"queue:"+item.id;
+   map.set(key,{id:item.id,url:publicUrl,title:item.title||publicUrl||"Material enviado",summary:item.summary||"",description:item.summary||"",status:"completed",category,media_url:item.media_url||"",media_type:item.media_type||"link",original_url:publicUrl,references:0,created_at:item.created_at,updated_at:item.updated_at});
+  }
+  for(const row of registered){
+   if(!row.url)continue;
+   const key=sourceIdentityKey(row.url)||row.url,old=map.get(key);
+   if(old)old.references+=Number(row.reference_count||0);
+   else map.set(key,{id:"",url:row.url,title:row.title||row.url,summary:row.description||"",description:row.description||"",status:"registered",category:"Outros",media_url:"",media_type:"link",original_url:row.url,references:Number(row.reference_count||0),created_at:"",updated_at:""});
+  }
+  const sources=[...map.values()].sort((a,b)=>(Date.parse(b.updated_at||b.created_at||"")||0)-(Date.parse(a.updated_at||a.created_at||"")||0)||a.title.localeCompare(b.title,"pt-BR"));
+  const done=queue.filter((item)=>item.status==="completed");
+  const stats={published:sources.length,completed:done.length,pending:queue.filter((x)=>x.status==="pending").length,processing:queue.filter((x)=>x.status==="processing").length,errors:queue.filter((x)=>x.status==="error").length,connections:Number(relationCount?.total||0),entities:Number(entityCount?.total||0),claims:done.filter((x)=>x.summary.includes("FICHA_AUTO_JSON:")).length,lastUpdated:done.map((x)=>x.updated_at).filter(Boolean).sort().at(-1)||""};
   res.set("Cache-Control","no-store").json({sources,stats,queueAvailable:true,generatedAt:new Date().toISOString()});
  }catch(error){console.error("Erro ao consultar fila de fontes:",error?.code||error?.name||"Error");res.status(502).json({error:"Não foi possível ler as fontes processadas do Turso."})}
 }));
+
 
 
 /* Fontes externas são registradas por URL, sem armazenar arquivos no servidor. */
