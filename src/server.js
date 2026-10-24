@@ -385,6 +385,7 @@ app.use(helmet({
       imgSrc: ["'self'", "data:"],
       fontSrc: ["'self'", "data:"],
       connectSrc: ["'self'"],
+      frameSrc: ["'self'", "https://www.youtube-nocookie.com"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
