@@ -652,6 +652,92 @@ app.delete("/api/documents/:id", requireCsrf, requireAdmin, async (req, res, nex
 });
 
 
+
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+const verificationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas verificações em pouco tempo. Aguarde e tente novamente." }
+});
+
+// Revisão assistida por IA: compara uma afirmação com o trecho de fonte fornecido
+// pelo administrador. Não acessa automaticamente a URL nem prova que a fonte é verdadeira.
+app.post("/api/admin/verify-evidence", verificationLimiter, requireCsrf, requireAdmin, async (req, res) => {
+  if (!GEMINI_API_KEY.trim()) {
+    return res.status(503).json({ error: "A revisão por Gemini não está configurada. Adicione GEMINI_API_KEY nas variáveis de ambiente do servidor." });
+  }
+
+  const claim = cleanString(req.body?.claim, { min: 1, max: 3000, required: true });
+  const sourceTitle = cleanString(req.body?.source_title ?? "", { max: 300 });
+  const sourceUrl = normalizeHttpUrl(req.body?.source_url ?? "");
+  const sourceExcerpt = cleanString(req.body?.source_excerpt, { min: 1, max: 12000, required: true });
+  const context = cleanString(req.body?.context ?? "", { max: 3000 });
+  if (!claim || !sourceExcerpt) {
+    return res.status(400).json({ error: "Informe a afirmação que deseja verificar e um trecho da fonte." });
+  }
+  if (req.body?.source_url && !sourceUrl) {
+    return res.status(400).json({ error: "A URL da fonte precisa ser HTTP ou HTTPS válida." });
+  }
+
+  const prompt = [
+    "Você é um revisor de evidências para um mural público de investigações jornalísticas e jurídicas em português brasileiro.",
+    "Compare a afirmação com EXCLUSIVAMENTE o trecho fornecido. Não use conhecimento externo nem invente fatos.",
+    "Não trate alegação, investigação ou denúncia como condenação. Diferencie suspeita, acusação, decisão provisória, condenação, absolvição, soltura e anulação.",
+    "Se o trecho não sustentar a afirmação, indique insuficiência; não conclua que a afirmação é falsa só porque o trecho não a menciona.",
+    "Em soltura ou anulação, só informe o fundamento se estiver explícito no trecho. A soltura não implica absolvição.",
+    "Retorne somente JSON válido com: verdict ("sustentada" | "parcialmente_sustentada" | "nao_sustentada_pelo_trecho" | "contradita_pelo_trecho" | "inconclusiva"), confidence ("baixa" | "media" | "alta"), explanation (string curta), supported_points (array de strings), missing_points (array de strings), cautions (array de strings), suggested_rewrite (string), source_limitations (string).",
+    "Não atribua culpa criminal a pessoa sem que o trecho e o status jurídico permitam. Redija a resposta de forma neutra.",
+    "Afirmação a revisar: " + claim,
+    "Contexto do registro: " + (context || "(não informado)"),
+    "Título da fonte: " + (sourceTitle || "(não informado)"),
+    "URL da fonte (não foi aberta automaticamente): " + (sourceUrl || "(não informado)"),
+    "Trecho da fonte fornecido pelo administrador:\n" + sourceExcerpt
+  ].join("\n\n");
+
+  try {
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY.trim() },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.1, responseMimeType: "application/json" }
+      }),
+      signal: AbortSignal.timeout(30000)
+    });
+    if (!response.ok) {
+      console.error("Gemini evidence review returned HTTP", response.status);
+      return res.status(502).json({ error: "O Gemini não conseguiu concluir a revisão agora. Tente novamente mais tarde." });
+    }
+    const payload = await response.json();
+    const raw = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
+    if (!raw) return res.status(502).json({ error: "O Gemini retornou uma resposta vazia." });
+    let review;
+    try { review = JSON.parse(raw); } catch {
+      return res.status(502).json({ error: "A resposta da IA não veio no formato esperado. Tente novamente." });
+    }
+    const allowedVerdicts = new Set(["sustentada", "parcialmente_sustentada", "nao_sustentada_pelo_trecho", "contradita_pelo_trecho", "inconclusiva"]);
+    if (!allowedVerdicts.has(review.verdict)) return res.status(502).json({ error: "A IA retornou uma classificação inválida." });
+    res.set("Cache-Control", "no-store").json({
+      review: {
+        verdict: review.verdict,
+        confidence: ["baixa", "media", "alta"].includes(review.confidence) ? review.confidence : "baixa",
+        explanation: cleanString(review.explanation ?? "", { max: 2000 }),
+        supported_points: Array.isArray(review.supported_points) ? review.supported_points.slice(0, 10).map((v) => cleanString(v, { max: 500 })) : [],
+        missing_points: Array.isArray(review.missing_points) ? review.missing_points.slice(0, 10).map((v) => cleanString(v, { max: 500 })) : [],
+        cautions: Array.isArray(review.cautions) ? review.cautions.slice(0, 10).map((v) => cleanString(v, { max: 500 })) : [],
+        suggested_rewrite: cleanString(review.suggested_rewrite ?? "", { max: 2000 }),
+        source_limitations: cleanString(review.source_limitations ?? "", { max: 1000 }),
+        disclaimer: "Revisão automatizada do trecho fornecido; não é verificação independente da URL nem parecer jurídico. Confirme manualmente antes de publicar."
+      }
+    });
+  } catch (error) {
+    console.error("Gemini evidence review failed:", error?.name || "Error");
+    res.status(502).json({ error: "Falha de conexão ao serviço de revisão. Tente novamente." });
+  }
+});
+
 app.get("/api/sources", async (req, res) => {
   try {
     const sources = await readTursoSourceQueue();
