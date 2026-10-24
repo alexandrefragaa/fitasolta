@@ -18,6 +18,8 @@
     publicSources: [],
     publicSourceStats: null,
     publicSourceMode: "all",
+    publicSourcePerson: "",
+    publicSourceVerdict: "",
     uploadingDocument: false
   };
 
@@ -53,9 +55,12 @@
     search: $("#search"),
     searchButton: $("#search-button"),
     graph: $("#graph"),
+    graphSection: $("#mapa"),
+    graphNavLink: $("#nav-relations"),
     publicSourceList: $("#public-source-list"),
     boardSummary: $("#board-summary"),
-    sourceStats: $("#source-stats"),
+    sourcePersonFilter: $("#source-person-filter"),
+    sourceVerdictFilter: $("#source-verdict-filter"),
     sourceCategoryFilter: $("#source-category-filter"),
     sourceLiveState: $("#source-live-state"),
     refreshSources: $("#refresh-sources"),
@@ -799,134 +804,214 @@
       limitations: read("Limites do material"), ficha
     };
   }
+  function normalizeInvestigativeSearch(value) {
+    return String(value || "").toLocaleLowerCase("pt-BR").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+
   function renderPublicSources() {
     if (!elements.publicSourceList) return;
-    const term = (elements.search?.value || "").trim().toLocaleLowerCase("pt-BR"), filter = elements.sourceCategoryFilter?.value || "";
-    const mode = state.publicSourceMode || "all", all = Array.isArray(state.publicSources) ? state.publicSources : [];
-    const visible = all.filter((s) => {
-      const d = parseSourceSummary(s.summary || s.description || ""), category = s.category || d.category || "Outros";
-      const ficha = d.ficha || {}, claim = ficha.claim || null;
-      const isVideo = Boolean(ficha.video_id || youtubeId(s.media_url || ficha.media_url || s.url));
-      const isImage = Boolean(ficha.image_url || (s.media_type === "image" && s.media_url));
-      const isLegal = /process|justiça|sentença|tribunal|lei|medida|governo|decisão/i.test([category, s.title, d.cases, d.legalStatus].join(" "));
-      const modeOK = mode === "all" || (mode === "claims" && claim && claim.quote) || (mode === "media" && (isVideo || isImage)) || (mode === "legal" && isLegal);
-      const searchable = [s.title,s.url,s.summary,s.description,category,d.people,d.organizations,d.cases,d.legalStatus,claim && claim.quote,claim && claim.speaker].join(" ").toLocaleLowerCase("pt-BR");
-      return Boolean(modeOK) && (!term || searchable.includes(term)) && (!filter || category === filter);
+    const term = normalizeInvestigativeSearch(elements.search?.value || "");
+    const categoryFilter = elements.sourceCategoryFilter?.value || "";
+    const personFilter = normalizeInvestigativeSearch(elements.sourcePersonFilter?.value || state.publicSourcePerson || "");
+    const verdictFilter = elements.sourceVerdictFilter?.value || state.publicSourceVerdict || "";
+    const mode = state.publicSourceMode || "all";
+    const all = Array.isArray(state.publicSources) ? state.publicSources : [];
+
+    const visible = all.filter((source) => {
+      const d = parseSourceSummary(source.summary || source.description || "");
+      const category = source.category || d.category || "Outros";
+      const ficha = d.ficha || {};
+      const claim = ficha.claim || null;
+      const fact = claim?.fact_check || null;
+      const isVideo = Boolean(ficha.video_id || youtubeId(source.media_url || ficha.media_url || source.url));
+      const isImage = Boolean(ficha.image_url || (source.media_type === "image" && source.media_url));
+      const isLegal = /process|justiça|sentença|tribunal|lei|medida|governo|decisão/i.test([category, source.title, d.cases, d.legalStatus].join(" "));
+      const modeMatches = mode === "all" || (mode === "claims" && Boolean(claim?.quote)) ||
+        (mode === "media" && (isVideo || isImage)) || (mode === "legal" && isLegal);
+      const searchText = normalizeInvestigativeSearch([
+        source.title, source.url, source.summary, source.description, category,
+        d.people, d.organizations, d.cases, d.legalStatus, claim?.quote, claim?.speaker
+      ].join(" "));
+      const personMatches = !personFilter || searchText.includes(personFilter);
+      const verdictMatches = !verdictFilter || fact?.verdict === verdictFilter;
+      return modeMatches && personMatches && verdictMatches &&
+        (!term || searchText.includes(term)) && (!categoryFilter || category === categoryFilter);
     });
-    if (elements.sourceStats) {
-      elements.sourceStats.replaceChildren();
-      const st = state.publicSourceStats || {};
-      for (const m of [
-        {label:"Fontes processadas",value:Number(st.completed ?? all.filter((x)=>x.status==="completed").length),caption:"resumos disponíveis",symbol:"↗"},
-        {label:"Na fila automática",value:Number(st.pending || 0),caption:"aguardando processamento",symbol:"◷"},
-        {label:"Ligações no mural",value:Number(st.connections || 0),caption:"relações documentadas",symbol:"⌘"}
-      ]) {
-        const tile = createElement("article","source-stat");
-        tile.append(createElement("span","source-stat-symbol",m.symbol),createElement("span","source-stat-label",m.label),createElement("strong","source-stat-value",m.value.toLocaleString("pt-BR")),createElement("small","",m.caption));
-        elements.sourceStats.appendChild(tile);
+
+    const lastUpdated = state.publicSourceStats?.lastUpdated;
+    if (elements.boardSummary) {
+      if (state.publicSourceStats?.queueAvailable === false) {
+        elements.boardSummary.textContent = "Arquivo indisponível. A conexão com a base de registros falhou.";
+      } else {
+        const parts = [visible.length + (visible.length === 1 ? " registro" : " registros")];
+        if (term || categoryFilter || personFilter || verdictFilter || mode !== "all") parts.push("filtros aplicados");
+        if (lastUpdated) parts.push("atualizado em " + formatDate(lastUpdated));
+        elements.boardSummary.textContent = parts.join(" · ");
       }
     }
-    const last = state.publicSourceStats?.lastUpdated;
-    if (elements.boardSummary) elements.boardSummary.textContent = state.publicSourceStats?.queueAvailable === false
-      ? "A fila automática está temporariamente indisponível; tente sincronizar novamente."
-      : visible.length + " item(ns) exibido(s)" + ((term || filter || mode !== "all") ? " com os filtros atuais" : "") + " · última atualização: " + (last ? formatDate(last) : "ainda não registrada") + ".";
     if (elements.sourceLiveState) {
-      elements.sourceLiveState.textContent = state.publicSourceStats?.queueAvailable === false ? "Radar indisponível" : "Radar ativo · atualização automática";
+      elements.sourceLiveState.textContent = state.publicSourceStats?.queueAvailable === false ? "Base indisponível" : "Base conectada";
       elements.sourceLiveState.classList.toggle("live-indicator-error", state.publicSourceStats?.queueAvailable === false);
     }
+
     elements.publicSourceList.replaceChildren();
     if (!visible.length) {
-      const message = state.publicSourceStats?.queueAvailable === false ? "Não foi possível consultar as fontes. Tente sincronizar novamente."
-        : all.length ? "Nenhum registro corresponde a esta busca ou filtro. Selecione “Tudo” para ver os outros materiais."
-        : "Ainda não há fontes processadas. O radar consulta feeds públicos diariamente e adiciona páginas legíveis à fila.";
+      const message = state.publicSourceStats?.queueAvailable === false
+        ? "Não foi possível consultar os registros. Tente atualizar novamente."
+        : all.length
+          ? "Nenhum registro corresponde aos filtros selecionados. Limpe os filtros para consultar todo o arquivo."
+          : "Nenhum registro publicado está disponível. A rotina automática precisa localizar e processar fontes antes de criar fichas públicas.";
       elements.publicSourceList.appendChild(createMessage(message));
       return;
     }
-    for (const s of visible) {
-      const d = parseSourceSummary(s.summary || s.description || ""), ficha = d.ficha || {};
-      const claim = ficha.claim || null, fact = claim && claim.fact_check || null, sourceUrl = s.url || s.original_url || "";
-      const candidateId = String(ficha.video_id || youtubeId(s.media_url || ficha.media_url || sourceUrl) || "");
+
+    for (const source of visible) {
+      const details = parseSourceSummary(source.summary || source.description || "");
+      const ficha = details.ficha || {};
+      const claim = ficha.claim || null;
+      const fact = claim?.fact_check || null;
+      const sourceUrl = source.url || source.original_url || "";
+      const candidateId = String(ficha.video_id || youtubeId(source.media_url || ficha.media_url || sourceUrl) || "");
       const videoId = /^[A-Za-z0-9_-]{11}$/.test(candidateId) ? candidateId : "";
-      const imageUrl = String(ficha.image_url || (s.media_type === "image" ? s.media_url : ""));
-      const card = createElement("article","public-source-card" + (videoId ? " has-video" : ""));
-      const top = createElement("div","source-card-top");
-      top.append(createElement("span","source-card-category",s.category || d.category || "Outros"),createElement("span","source-card-status",s.status === "completed" ? "Processada" : "Referência"));
-      card.append(top,createElement("h3","source-card-title",s.title || "Fonte sem título"));
+      const imageUrl = String(ficha.image_url || (source.media_type === "image" ? source.media_url : ""));
+      const card = createElement("article", "public-source-card" + (videoId ? " has-video" : ""));
+      const metadata = createElement("p", "source-card-meta");
+      metadata.append(
+        createElement("span", "", source.category || details.category || "Outros"),
+        createElement("span", "", source.status === "completed" ? " · Processada" : " · Referência")
+      );
+      card.append(metadata, createElement("h3", "source-card-title", source.title || "Fonte sem título"));
+
       if (videoId) {
-        const start = Math.max(0,Number(ficha.video_start || 0) || timestampSeconds(claim && claim.timestamp));
-        const frame = createElement("iframe","source-video-frame");
+        const start = Math.max(0, Number(ficha.video_start || 0) || timestampSeconds(claim?.timestamp));
+        const frame = createElement("iframe", "source-video-frame");
         frame.src = "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(videoId) + (start ? "?start=" + start : "");
-        frame.title = "Vídeo original relacionado ao registro"; frame.loading = "lazy"; frame.referrerPolicy = "strict-origin-when-cross-origin";
+        frame.title = "Vídeo original relacionado ao registro";
+        frame.loading = "lazy";
+        frame.referrerPolicy = "strict-origin-when-cross-origin";
         frame.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
-        frame.setAttribute("allowfullscreen","");
+        frame.setAttribute("allowfullscreen", "");
         card.appendChild(frame);
-        if (claim && claim.timestamp) card.appendChild(createElement("p","source-video-timestamp","Trecho identificado na transcrição: " + claim.timestamp));
-        if (!ficha.transcript_available) card.appendChild(createElement("p","source-media-note","O player está disponível, mas não encontramos transcrição pública utilizável para atribuir uma fala literal automaticamente."));
+        if (claim?.timestamp) card.appendChild(createElement("p", "source-video-timestamp", "Timestamp na transcrição: " + claim.timestamp));
+        if (!ficha.transcript_available) card.appendChild(createElement("p", "source-media-note", "O vídeo está disponível, mas não foi encontrada transcrição pública utilizável. Nenhuma fala foi inferida."));
       } else if (/^https?:\/\//i.test(imageUrl)) {
-        const link = createElement("a","source-image-link"); link.href=imageUrl; link.target="_blank"; link.rel="noopener noreferrer";
-        const image = createElement("img","source-preview-image"); image.src=imageUrl; image.alt="Imagem associada à fonte: " + (s.title || "material"); image.loading="lazy"; image.decoding="async";
-        link.appendChild(image); card.appendChild(link);
+        const link = createElement("a", "source-image-link");
+        link.href = imageUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        const image = createElement("img", "source-preview-image");
+        image.src = imageUrl;
+        image.alt = "Imagem associada ao registro";
+        image.loading = "lazy";
+        image.decoding = "async";
+        link.appendChild(image);
+        card.appendChild(link);
       }
-      if (claim && claim.quote) {
-        const box = createElement("section","source-claim-box");
-        box.appendChild(createElement("p","eyebrow",claim.speaker ? "FALA ATRIBUÍDA A " + claim.speaker : "TRECHO CITADO NA FONTE"));
-        box.appendChild(createElement("blockquote","source-claim-quote","“" + claim.quote + "”"));
-        if (claim.context) box.appendChild(createElement("p","source-claim-context",claim.context));
-        if (claim.timestamp) box.appendChild(createElement("p","source-video-timestamp","Timestamp da fala: " + claim.timestamp));
+
+      if (claim?.quote) {
+        const claimBox = createElement("section", "source-claim-box");
+        claimBox.appendChild(createElement("p", "eyebrow", claim.speaker ? "FALA ATRIBUÍDA A " + claim.speaker : "TRECHO CITADO NA FONTE"));
+        claimBox.appendChild(createElement("blockquote", "source-claim-quote", "“" + claim.quote + "”"));
+        if (claim.context) claimBox.appendChild(createElement("p", "source-claim-context", claim.context));
+        if (claim.timestamp) claimBox.appendChild(createElement("p", "source-video-timestamp", "Timestamp: " + claim.timestamp));
         if (fact) {
-          const labels={verdadeira:"Evidências sustentam a afirmação",falsa:"Evidências contradizem a afirmação",enganosa:"Parcialmente correta / enganosa",fora_de_contexto:"Contexto muda a interpretação",inconclusiva:"Inconclusiva",nao_verificada:"Ainda não verificada",opiniao_previsao:"Opinião, proposta ou previsão"};
-          box.appendChild(createElement("span","fact-verdict verdict-" + fact.verdict,labels[fact.verdict] || "Checagem automática"));
-          box.appendChild(createElement("p","source-fact-explanation",fact.explanation || "A checagem ainda não tem evidências suficientes."));
-          if(fact.context_note)box.appendChild(createElement("p","source-claim-context",fact.context_note));
-          const details=createElement("details","source-evidence-details");details.appendChild(createElement("summary","","Ver fontes e evidências"));
-          const grid=createElement("div","source-evidence-grid");
-          const groups=[
-            {label:"Fontes que sustentam",items:fact.supporting_sources||[],empty:"Nenhuma fonte de apoio foi vinculada com confiança suficiente."},
-            {label:"Fontes que contradizem ou limitam",items:fact.contradictory_sources||[],empty:"A pesquisa não conseguiu vincular uma fonte que contradiga ou limite diretamente esta afirmação. Isso não prova que ela não exista."}
+          const labels = {
+            verdadeira: "Verdadeira", falsa: "Falsa", enganosa: "Enganosa",
+            fora_de_contexto: "Fora de contexto", inconclusiva: "Inconclusiva",
+            nao_verificada: "Não verificada", opiniao_previsao: "Opinião, proposta ou previsão"
+          };
+          claimBox.appendChild(createElement("p", "fact-verdict verdict-" + fact.verdict, "Estado da checagem: " + (labels[fact.verdict] || "Não classificada")));
+          claimBox.appendChild(createElement("p", "source-fact-explanation", fact.explanation || "Ainda não há evidências suficientes para explicar a classificação."));
+          if (fact.context_note) claimBox.appendChild(createElement("p", "source-claim-context", fact.context_note));
+          const evidence = createElement("details", "source-evidence-details");
+          evidence.appendChild(createElement("summary", "", "Consultar evidências"));
+          const grid = createElement("div", "source-evidence-grid");
+          const groups = [
+            { label: "Fontes que sustentam", items: fact.supporting_sources || [], empty: "Nenhuma fonte de apoio foi vinculada com confiança suficiente." },
+            { label: "Fontes que contradizem ou limitam", items: fact.contradictory_sources || [], empty: "A pesquisa não vinculou uma fonte que contradiga ou limite diretamente esta afirmação. A ausência de contraponto na busca não prova que a afirmação seja verdadeira." }
           ];
-          const shown=new Set();
-          for(const group of groups){
-            const section=createElement("section","source-evidence-group");
-            section.appendChild(createElement("h4","",group.label));
-            if(!group.items.length) section.appendChild(createElement("p","source-evidence-link",group.empty));
-            for(const item of group.items.slice(0,2)){
-              const row=createElement("p","source-evidence-link");
-              appendSourceLink(row,item.url,item.title||"Abrir fonte consultada");
+          const shown = new Set();
+          for (const group of groups) {
+            const section = createElement("section", "source-evidence-group");
+            section.appendChild(createElement("h4", "", group.label));
+            if (!group.items.length) section.appendChild(createElement("p", "source-evidence-empty", group.empty));
+            for (const item of group.items.slice(0, 3)) {
+              const row = createElement("p", "source-evidence-link");
+              appendSourceLink(row, item.url, item.title || "Abrir fonte consultada");
+              if (item.excerpt) row.appendChild(createElement("small", "", item.excerpt));
               section.appendChild(row);
-              if(item.url)shown.add(item.url);
+              if (item.url) shown.add(item.url);
             }
             grid.appendChild(section);
           }
-          const otherSources=(fact.searched_sources||[]).filter((item)=>item.url&&!shown.has(item.url)).slice(0,4);
-          if(otherSources.length){
-            const section=createElement("section","source-evidence-group");
-            section.appendChild(createElement("h4","","Outras fontes encontradas (sem posição atribuída)"));
-            for(const item of otherSources){
-              const row=createElement("p","source-evidence-link");
-              appendSourceLink(row,item.url,item.title||"Abrir fonte consultada");
+          const otherSources = (fact.searched_sources || []).filter((item) => item.url && !shown.has(item.url)).slice(0, 4);
+          if (otherSources.length) {
+            const section = createElement("section", "source-evidence-group");
+            section.appendChild(createElement("h4", "", "Outras fontes consultadas"));
+            for (const item of otherSources) {
+              const row = createElement("p", "source-evidence-link");
+              appendSourceLink(row, item.url, item.title || "Abrir fonte consultada");
               section.appendChild(row);
             }
             grid.appendChild(section);
           }
-          details.appendChild(grid);if(fact.verified_at)details.appendChild(createElement("p","muted","Pesquisa: "+formatDate(fact.verified_at)+". Resultado automatizado; novas evidências podem mudar a conclusão."));
-          box.appendChild(details);
-        } else box.appendChild(createElement("span","fact-verdict verdict-nao_verificada",claim.verifiable?"Ainda não verificada":"Não é uma afirmação factual verificável"));
-        card.appendChild(box);
+          evidence.appendChild(grid);
+          if (fact.verified_at) evidence.appendChild(createElement("p", "muted", "Pesquisa executada em " + formatDate(fact.verified_at) + ". Resultado automático, sujeito a revisão."));
+          claimBox.appendChild(evidence);
+        } else {
+          claimBox.appendChild(createElement("p", "fact-verdict verdict-nao_verificada", claim.verifiable ? "Estado da checagem: não verificada" : "Classificação: não é uma afirmação factual verificável"));
+        }
+        card.appendChild(claimBox);
       }
-      if(d.eventDate||d.legalStatus){const context=createElement("div","source-context-grid");if(d.eventDate){const item=createElement("div","source-context-item");item.append(createElement("span","source-context-label","Data mencionada"),createElement("strong","",d.eventDate));context.appendChild(item)}if(d.legalStatus){const item=createElement("div","source-context-item");item.append(createElement("span","source-context-label","Andamento informado"),createElement("strong","",d.legalStatus));context.appendChild(item)}card.appendChild(context)}
-      if(d.summary)card.appendChild(createElement("p","source-card-summary",d.summary));
-      const extra=createElement("details","source-points-details");extra.appendChild(createElement("summary","","Pontos relevantes e contexto"));const inner=createElement("div","source-points-content");
-      const meta=[{label:"Pessoas citadas",value:d.people},{label:"Instituições",value:d.organizations},{label:"Casos e processos",value:d.cases}].filter((x)=>x.value);
-      if(meta.length){const dl=createElement("dl","source-metadata");for(const item of meta){const row=createElement("div","source-metadata-row");row.append(createElement("dt","",item.label),createElement("dd","",item.value));dl.appendChild(row)}inner.appendChild(dl)}
-      if(d.points.length){const list=createElement("ul","source-key-points");for(const point of d.points)list.appendChild(createElement("li","",point));inner.appendChild(list)}
-      if(d.limitations)inner.appendChild(createElement("p","source-limitation","Limites do material: "+d.limitations));
-      if(!inner.childNodes.length)inner.appendChild(createMessage("A fonte não trouxe detalhes adicionais estruturados."));
-      extra.appendChild(inner);card.appendChild(extra);
-      const footer=createElement("div","source-card-footer"),date=s.updated_at||s.created_at;
-      footer.appendChild(createElement("span","source-card-date",date?"Processada: "+formatDate(date):"Data de processamento não informada"));
-      if(sourceUrl)appendSourceLink(footer,sourceUrl,"Fonte original ↗");else footer.appendChild(createElement("span","source-card-date","Texto enviado sem URL original"));
-      if(ficha.video_source_url)appendSourceLink(footer,ficha.video_source_url,"Abrir vídeo ↗");
-      card.appendChild(footer);elements.publicSourceList.appendChild(card);
+
+      if (details.eventDate || details.legalStatus) {
+        const context = createElement("dl", "source-context-list");
+        if (details.eventDate) {
+          context.appendChild(createElement("dt", "", "Data mencionada"));
+          context.appendChild(createElement("dd", "", details.eventDate));
+        }
+        if (details.legalStatus) {
+          context.appendChild(createElement("dt", "", "Andamento informado pela fonte"));
+          context.appendChild(createElement("dd", "", details.legalStatus));
+        }
+        card.appendChild(context);
+      }
+      if (details.summary) card.appendChild(createElement("p", "source-card-summary", details.summary));
+
+      const extra = createElement("details", "source-points-details");
+      extra.appendChild(createElement("summary", "", "Detalhes do registro"));
+      const inner = createElement("div", "source-points-content");
+      const information = [
+        { label: "Pessoas citadas", value: details.people },
+        { label: "Instituições", value: details.organizations },
+        { label: "Casos e processos", value: details.cases }
+      ].filter((item) => item.value);
+      if (information.length) {
+        const list = createElement("dl", "source-metadata");
+        for (const entry of information) {
+          list.appendChild(createElement("dt", "", entry.label));
+          list.appendChild(createElement("dd", "", entry.value));
+        }
+        inner.appendChild(list);
+      }
+      if (details.points.length) {
+        const list = createElement("ul", "source-key-points");
+        for (const point of details.points) list.appendChild(createElement("li", "", point));
+        inner.appendChild(list);
+      }
+      if (details.limitations) inner.appendChild(createElement("p", "source-limitation", "Limites da fonte: " + details.limitations));
+      if (!inner.childNodes.length) inner.appendChild(createMessage("Não há outros detalhes estruturados neste registro."));
+      extra.appendChild(inner);
+      card.appendChild(extra);
+
+      const footer = createElement("div", "source-card-footer");
+      const updatedAt = source.updated_at || source.created_at;
+      if (updatedAt) footer.appendChild(createElement("span", "muted", "Processado em " + formatDate(updatedAt)));
+      if (sourceUrl) appendSourceLink(footer, sourceUrl, "Abrir fonte original");
+      if (ficha.video_source_url) appendSourceLink(footer, ficha.video_source_url, "Abrir vídeo original");
+      if (!sourceUrl && !ficha.video_source_url) footer.appendChild(createElement("span", "muted", "Texto fornecido sem URL original"));
+      card.appendChild(footer);
+      elements.publicSourceList.appendChild(card);
     }
   }
 
@@ -968,6 +1053,9 @@
       state.relationships = Array.isArray(relationshipData.relationships)
         ? relationshipData.relationships
         : [];
+      const hasRelations = state.entities.length > 0 || state.relationships.length > 0;
+      if (elements.graphSection) elements.graphSection.hidden = !hasRelations;
+      if (elements.graphNavLink) elements.graphNavLink.hidden = !hasRelations;
 
       renderGraph();
 
@@ -1170,18 +1258,13 @@
 
   function renderEmptyDetails() {
     if (!elements.graphDetails) return;
-
-    elements.graphDetails.replaceChildren(
-      createMessage(
-        "Selecione uma entidade para ver os detalhes e as fontes disponíveis.",
-        "muted"
-      )
-    );
+    elements.graphDetails.replaceChildren();
+    elements.graphDetails.hidden = true;
   }
 
   function renderEntityDetails(entity) {
     if (!elements.graphDetails || !entity) return;
-
+    elements.graphDetails.hidden = false;
     elements.graphDetails.replaceChildren();
 
     const heading = createElement(
@@ -1688,6 +1771,14 @@
     elements.refreshGraph?.addEventListener("click", () => { loadGraph(); loadPublicBoard(); });
     elements.refreshSources?.addEventListener("click", loadPublicBoard);
     elements.sourceCategoryFilter?.addEventListener("change", renderPublicSources);
+    elements.sourcePersonFilter?.addEventListener("change", () => {
+      state.publicSourcePerson = elements.sourcePersonFilter.value || "";
+      renderPublicSources();
+    });
+    elements.sourceVerdictFilter?.addEventListener("change", () => {
+      state.publicSourceVerdict = elements.sourceVerdictFilter.value || "";
+      renderPublicSources();
+    });
     elements.refreshDocuments?.addEventListener("click", loadDocuments);
     elements.refreshSourceQueue?.addEventListener("click", loadSourceQueue);
     elements.processSourceQueue?.addEventListener("click", () => processSourceQueue());
