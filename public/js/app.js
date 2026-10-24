@@ -15,6 +15,8 @@
     loadingSourceQueue: false,
     loadingPublicBoard: false,
     sourceQueue: [],
+    publicSources: [],
+    publicSourceStats: null,
     uploadingDocument: false
   };
 
@@ -45,6 +47,10 @@
     graph: $("#graph"),
     publicSourceList: $("#public-source-list"),
     boardSummary: $("#board-summary"),
+    sourceStats: $("#source-stats"),
+    sourceCategoryFilter: $("#source-category-filter"),
+    sourceLiveState: $("#source-live-state"),
+    refreshSources: $("#refresh-sources"),
     graphDetails: $("#entity-details"),
     refreshGraph: $("#refresh-graph"),
 
@@ -707,48 +713,39 @@
   }
 
 
+
+  function parseSourceSummary(value) {
+    const raw=String(value||"").trim(),lines=raw.split(/\r?\n/).map((x)=>x.trim()).filter(Boolean);
+    const read=(label)=>lines.find((x)=>x.toLocaleLowerCase("pt-BR").startsWith(label.toLocaleLowerCase("pt-BR")+":"))?.slice(label.length+1).trim()||"";
+    const points=lines.filter((x)=>x.toLocaleLowerCase("pt-BR").startsWith("ponto relevante:")).map((x)=>x.slice(x.indexOf(":")+1).trim()).filter(Boolean);
+    const structured=lines.some((x)=>/^(categoria|data mencionada|pessoas citadas|instituições citadas|casos e processos|andamento mencionado pela fonte|resumo da fonte|ponto relevante|limites do material|nota):/i.test(x));
+    return {category:read("Categoria")||"Outros",eventDate:read("Data mencionada"),people:read("Pessoas citadas"),organizations:read("Instituições citadas"),cases:read("Casos e processos"),legalStatus:read("Andamento mencionado pela fonte"),summary:read("Resumo da fonte")||(structured?"":raw),points,limitations:read("Limites do material"),structured};
+  }
+  function renderPublicSources() {
+    if(!elements.publicSourceList)return;
+    const q=(elements.search?.value||"").trim().toLocaleLowerCase("pt-BR"),cat=elements.sourceCategoryFilter?.value||"",all=Array.isArray(state.publicSources)?state.publicSources:[];
+    const visible=all.filter((s)=>{const d=parseSourceSummary(s.summary||s.description||""),c=s.category||d.category||"Outros";return(!q||[s.title,s.url,s.summary,s.description,c,d.people,d.organizations,d.cases,d.legalStatus].join(" ").toLocaleLowerCase("pt-BR").includes(q))&&(!cat||c===cat)});
+    if(elements.sourceStats){elements.sourceStats.replaceChildren();const st=state.publicSourceStats||{};for(const m of [{label:"Fontes analisadas",value:Number(st.completed??all.filter((x)=>x.status==="completed").length),caption:"resumos disponíveis",symbol:"↗"},{label:"Na fila automática",value:Number(st.pending||0),caption:"aguardando processamento",symbol:"◷"},{label:"Conexões no mural",value:Number(st.connections||0),caption:"ligações entre registros",symbol:"⌘"}]){const card=createElement("article","source-stat");card.append(createElement("span","source-stat-symbol",m.symbol),createElement("span","source-stat-label",m.label),createElement("strong","source-stat-value",m.value.toLocaleString("pt-BR")),createElement("small","",m.caption));elements.sourceStats.appendChild(card)}}
+    const last=state.publicSourceStats?.lastUpdated;
+    if(elements.boardSummary)elements.boardSummary.textContent=state.publicSourceStats?.queueAvailable===false?"Fila automática indisponível; tente sincronizar novamente.":visible.length+" fonte(s) exibida(s)"+((q||cat)?" após os filtros":"")+" · última fonte processada: "+(last?formatDate(last):"ainda não registrada")+".";
+    if(elements.sourceLiveState){elements.sourceLiveState.textContent=state.publicSourceStats?.queueAvailable===false?"Radar indisponível":"Radar ativo · atualização automática";elements.sourceLiveState.classList.toggle("live-indicator-error",state.publicSourceStats?.queueAvailable===false)}
+    elements.publicSourceList.replaceChildren();
+    if(!visible.length){elements.publicSourceList.appendChild(createMessage(state.publicSourceStats?.queueAvailable===false?"Não foi possível consultar a fila. Use “Sincronizar agora” para tentar novamente.":all.length?"Nenhuma fonte corresponde aos filtros.":"Ainda não há fontes processadas. O radar consulta feeds públicos diariamente e adiciona páginas legíveis à fila."));return}
+    for(const s of visible){const d=parseSourceSummary(s.summary||s.description||""),card=createElement("article","public-source-card"),top=createElement("div","source-card-top");top.append(createElement("span","source-card-category",s.category||d.category),createElement("span","source-card-status",s.status==="completed"?"Processada":"Referência"));card.append(top,createElement("h3","source-card-title",s.title||"Fonte sem título"));
+      if(d.eventDate||d.legalStatus){const box=createElement("div","source-context-grid");if(d.eventDate){const x=createElement("div","source-context-item");x.append(createElement("span","source-context-label","Data mencionada"),createElement("strong","",d.eventDate));box.appendChild(x)}if(d.legalStatus){const x=createElement("div","source-context-item");x.append(createElement("span","source-context-label","Andamento informado"),createElement("strong","",d.legalStatus));box.appendChild(x)}card.appendChild(box)}
+      if(d.summary)card.appendChild(createElement("p","source-card-summary",d.summary));else if(!d.structured)card.appendChild(createElement("p","source-card-summary","Abra o material original para consultar o conteúdo completo."));
+      const metas=[{label:"Pessoas citadas",value:d.people},{label:"Instituições",value:d.organizations},{label:"Casos e processos",value:d.cases}].filter((x)=>x.value);
+      if(metas.length){const dl=createElement("dl","source-metadata");for(const m of metas){const row=createElement("div","source-metadata-row");row.append(createElement("dt","",m.label),createElement("dd","",m.value));dl.appendChild(row)}card.appendChild(dl)}
+      if(d.points.length){card.appendChild(createElement("h4","source-points-heading","Pontos relevantes"));const ul=createElement("ul","source-key-points");for(const p of d.points)ul.appendChild(createElement("li","",p));card.appendChild(ul)}
+      if(d.limitations){const note=createElement("p","source-limitation","");note.append(createElement("strong","","Limite do material: "),document.createTextNode(d.limitations));card.appendChild(note)}
+      const foot=createElement("div","source-card-footer");foot.appendChild(createElement("span","source-card-date",s.updated_at||s.created_at?"Processada: "+formatDate(s.updated_at||s.created_at):"Data de processamento não informada"));appendSourceLink(foot,s.url,"Abrir fonte original ↗");card.appendChild(foot);elements.publicSourceList.appendChild(card)}
+  }
   async function loadPublicBoard() {
-    if (!elements.publicSourceList || state.loadingPublicBoard) return;
-    state.loadingPublicBoard = true;
-    elements.publicSourceList.replaceChildren(createMessage("Consultando o banco de fontes…"));
-    try {
-      const response = await fetch(`${API}/sources`, { headers: { Accept: "application/json" }, cache: "no-store" });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || `Falha ao carregar fontes (HTTP ${response.status}).`);
-      const term = (elements.search?.value || "").trim().toLocaleLowerCase("pt-BR");
-      const sources = (Array.isArray(data.sources) ? data.sources : []).filter((source) =>
-        !term || [source.title, source.url, source.summary, source.status]
-          .some((value) => String(value || "").toLocaleLowerCase("pt-BR").includes(term))
-      );
-      elements.publicSourceList.replaceChildren();
-      if (elements.boardSummary) elements.boardSummary.textContent =
-        `${sources.length} registro(s) exibido(s)${term ? " para esta pesquisa" : ""} · dados lidos diretamente do banco de fontes.`;
-      if (!sources.length) {
-        elements.publicSourceList.appendChild(createMessage(term
-          ? "Nenhuma fonte corresponde à sua pesquisa. Tente outro nome ou termo."
-          : "Ainda não há fontes cadastradas para exibir. Adicione links à fila de fontes do Turso na área administrativa."));
-        return;
-      }
-      for (const source of sources) {
-        const card = createElement("article", "public-source-card");
-        const top = createElement("div", "source-card-top");
-        const status = createElement("span", `source-card-status ${source.status}`, readableQueueStatus(source.status));
-        const id = createElement("span", "muted", source.id ? `Registro #${source.id}` : "Registro de fonte");
-        top.append(status, id);
-        const title = createElement("h3", "", source.title || "Fonte sem título");
-        const summary = createElement("p", "source-card-summary", source.summary || "Ainda não há resumo registrado para esta fonte. Abra o link original para consultar o conteúdo.");
-        const footer = createElement("div", "source-card-footer");
-        footer.appendChild(createElement("span", "", `Atualizado: ${formatDate(source.updated_at || source.created_at)}`));
-        appendSourceLink(footer, source.url, "Abrir fonte original ↗");
-        card.append(top, title, summary, footer);
-        elements.publicSourceList.appendChild(card);
-      }
-    } catch (error) {
-      elements.publicSourceList.replaceChildren(createMessage(error.message || "Não foi possível carregar as fontes.", "error-message"));
-      if (elements.boardSummary) elements.boardSummary.textContent = "Não foi possível conectar ao banco de fontes.";
-    } finally {
-      state.loadingPublicBoard = false;
-    }
+    if(!elements.publicSourceList||state.loadingPublicBoard)return;state.loadingPublicBoard=true;if(elements.sourceLiveState)elements.sourceLiveState.textContent="Sincronizando fontes…";
+    if(!state.publicSources.length)elements.publicSourceList.replaceChildren(createMessage("Consultando o banco e os feeds públicos…"));
+    try{const r=await fetch(API+"/sources",{headers:{Accept:"application/json"},cache:"no-store"}),data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||"Falha ao carregar fontes (HTTP "+r.status+").");state.publicSources=Array.isArray(data.sources)?data.sources:[];state.publicSourceStats={...(data.stats||{}),queueAvailable:data.queueAvailable!==false};renderPublicSources()}
+    catch(e){state.publicSourceStats={...(state.publicSourceStats||{}),queueAvailable:false};elements.publicSourceList.replaceChildren(createMessage(e.message||"Não foi possível carregar fontes.","error-message"));if(elements.boardSummary)elements.boardSummary.textContent="Não foi possível conectar ao banco de fontes.";if(elements.sourceLiveState){elements.sourceLiveState.textContent="Radar indisponível";elements.sourceLiveState.classList.add("live-indicator-error")}}
+    finally{state.loadingPublicBoard=false}
   }
 
   // ------------------------------------------------------------
@@ -855,7 +852,7 @@
         createMessage(
           term
             ? "Nenhuma entidade corresponde à pesquisa."
-            : "Nenhuma entidade cadastrada. Entre na área administrativa para gerenciar os dados."
+            : "O mapa está sendo montado a partir das fontes processadas. Consulte também o radar de fontes abaixo."
         )
       );
 
@@ -1486,14 +1483,16 @@
     elements.logoutButton?.addEventListener("click", handleLogout);
     elements.uploadForm?.addEventListener("submit", handleDocumentUpload);
 
-    elements.refreshGraph?.addEventListener("click", loadPublicBoard);
+    elements.refreshGraph?.addEventListener("click", () => { loadGraph(); loadPublicBoard(); });
+    elements.refreshSources?.addEventListener("click", loadPublicBoard);
+    elements.sourceCategoryFilter?.addEventListener("change", renderPublicSources);
     elements.refreshDocuments?.addEventListener("click", loadDocuments);
     elements.refreshSourceQueue?.addEventListener("click", loadSourceQueue);
     elements.processSourceQueue?.addEventListener("click", () => processSourceQueue());
     elements.retrySourceErrors?.addEventListener("click", () => processSourceQueue({ retryErrors: true }));
     elements.sourceQueueSearch?.addEventListener("input", renderSourceQueue);
 
-    elements.searchButton?.addEventListener("click", () => { applySearch(); loadPublicBoard(); });
+    elements.searchButton?.addEventListener("click", () => { applySearch(); renderPublicSources(); });
 
     elements.search?.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
@@ -1502,7 +1501,7 @@
       }
     });
 
-    elements.search?.addEventListener("input", () => { applySearch(); loadPublicBoard(); });
+    elements.search?.addEventListener("input", () => { applySearch(); renderPublicSources(); });
 
     elements.adminDialog?.addEventListener("close", () => {
       if (elements.adminPassword) {
@@ -1528,7 +1527,8 @@
       await checkAdminSession();
     } else {
       // A área pública não faz chamadas de autenticação nem carrega controles admin.
-      await Promise.allSettled([loadPublicBoard(), checkHealth()]);
+      await Promise.allSettled([loadPublicBoard(), loadGraph(), checkHealth()]);
+      window.setInterval(() => { if (document.visibilityState !== "hidden") loadPublicBoard(); }, 120000);
     }
 
     // O token pode ter falhado na primeira tentativa se a API

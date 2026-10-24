@@ -18,7 +18,6 @@
     </a>
     <nav aria-label="Navegação administrativa">
       <a href="/">Ver site público</a>
-      <a href="/revisao.html">Revisão editorial</a>
     </nav>
   </header>
 
@@ -26,10 +25,10 @@
     <section class="hero admin-hero">
       <p class="eyebrow">AMBIENTE PRIVADO</p>
       <h1>Painel administrativo</h1>
-      <p class="muted">Gerencie o processamento de fontes e acompanhe a atividade editorial. Esta página só é entregue pelo servidor quando a sessão administrativa está autenticada.</p>
+      <p class="muted">Acompanhe a fila, a descoberta automática de fontes públicas e os registros de processamento. Esta página só é entregue pelo servidor quando a sessão administrativa está autenticada.</p>
       <div class="admin-automation-note">
         <span class="admin-note-mark" aria-hidden="true">↻</span>
-        <p><strong>Processamento automático ativo</strong><br>O FitaSolta tenta processar até 3 fontes por dia, priorizando pendências. Fontes que falharem ficam registradas para nova tentativa automática e podem ser retentadas manualmente.</p>
+        <p><strong>Processamento automático ativo</strong><br>Todos os dias o FitaSolta consulta feeds públicos da Agência Brasil, Agência Senado e Agência Câmara, adiciona novidades à fila e tenta processar até 3 fontes. Quando a fila antiga está grande, importa uma novidade por dia; os erros ficam elegíveis para nova tentativa automática.</p>
       </div>
     </section>
 
@@ -62,7 +61,7 @@
         <div>
           <p class="eyebrow">FONTES</p>
           <h2 id="source-queue-heading">Fila de processamento</h2>
-          <p class="muted">Os títulos e resumos ajudam na navegação, mas não substituem a leitura da fonte original nem uma revisão humana.</p>
+          <p class="muted">Os resumos, nomes e ligações são extraídos automaticamente. A IA organiza o texto e aponta limites; não declara culpa nem produz veredictos de verdadeiro/falso.</p>
         </div>
         <div class="admin-actions">
           <button id="refresh-source-queue" class="button button-outline" type="button">Atualizar fila</button>
@@ -77,25 +76,6 @@
       <ul id="source-queue-list" class="source-queue-list"></ul>
     </section>
 
-    <section id="gemini-review-panel" class="panel admin-panel" aria-labelledby="gemini-review-heading" hidden>
-      <p class="eyebrow">APOIO EDITORIAL</p>
-      <h2 id="gemini-review-heading">Revisão de evidências com Gemini</h2>
-      <p class="muted">Compare uma afirmação com um trecho fornecido manualmente. A análise é auxiliar, não uma verificação independente da URL nem uma decisão editorial.</p>
-      <form id="gemini-review-form" class="form-stack admin-review-form">
-        <label for="gemini-claim">Afirmação a revisar</label>
-        <textarea id="gemini-claim" rows="3" maxlength="3000" required placeholder="Ex.: A decisão anulou a condenação por determinado fundamento…"></textarea>
-        <label for="gemini-context">Contexto do caso (opcional)</label>
-        <textarea id="gemini-context" rows="2" maxlength="3000"></textarea>
-        <label for="gemini-source-title">Título da fonte</label>
-        <input id="gemini-source-title" maxlength="300">
-        <label for="gemini-source-url">URL da fonte</label>
-        <input id="gemini-source-url" type="url" maxlength="2000" placeholder="https://…">
-        <label for="gemini-source-excerpt">Trecho relevante da fonte</label>
-        <textarea id="gemini-source-excerpt" rows="6" maxlength="12000" required placeholder="Cole o trecho do documento, decisão ou reportagem que sustenta a afirmação."></textarea>
-        <button id="gemini-review-submit" class="button" type="submit">Analisar trecho</button>
-      </form>
-      <div id="gemini-review-result" class="status admin-review-result" role="status" aria-live="polite"></div>
-    </section>
   </main>
 
   <footer class="footer">

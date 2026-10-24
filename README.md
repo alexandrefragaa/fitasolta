@@ -1,95 +1,14 @@
-# FitaSolta — mural de fontes e conexões
+# FitaSolta — radar de fontes e conexões
 
-O FitaSolta organiza entidades, relações e fontes externas com rastreabilidade. O site guarda metadados e links; não recebe nem hospeda PDFs enviados.
+O FitaSolta reúne fontes públicas, acontecimentos, medidas, processos e relações documentadas. Os materiais continuam nos sites originais.
 
-## Requisitos
+## Automação
+O cron diário consulta feeds públicos da Agência Brasil, Agência Senado e Agência Câmara, adiciona novidades ao Turso e tenta processar até três fontes por execução. Enquanto houver uma fila antiga acumulada, importa uma fonte nova por dia para ajudar a reduzir as pendências. Quando o texto está acessível, a IA organiza categoria, data explícita, pessoas, instituições, casos/processos, andamento mencionado, pontos relevantes e limites do texto. As conexões registram menções na fonte e não implicam culpa.
 
-- Node.js 22.x
-- Uma base Turso (libSQL)
-- Git e VS Code (para desenvolvimento local)
+A página pública lê a mesma fila do processamento e atualiza as fontes automaticamente a cada dois minutos. Votação, comparação e revisão manual foram retiradas da navegação.
 
-## Configuração local
+## Limitações
+A descoberta depende dos feeds configurados e da permissão de acesso automatizado. PDFs não legíveis, fontes bloqueadas e conteúdo autenticado podem falhar. O radar não varre toda a internet. A IA não determina sozinha se algo é verdadeiro ou falso nem substitui a leitura do original. Diferencie investigação, denúncia, acusação, decisão provisória, condenação, absolvição, soltura e anulação.
 
-1. Instale as dependências:
-
-   ```bash
-   npm install
-   ```
-
-2. Copie `.env.example` para `.env`.
-3. No painel do Turso, crie um token com permissão de leitura e escrita. Coloque a URL do banco em `HOST_TURSO` e o token em `TOKEN_TURSO`.
-4. Gere um segredo de sessão:
-
-   ```bash
-   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
-   ```
-
-   Cole o resultado em `SESSION_SECRET`.
-
-5. Gere um hash bcrypt para uma senha administrativa forte:
-
-   ```bash
-   node -e "const b=require('bcryptjs'); const p=process.argv[1]; if(!p){console.error('Informe uma senha entre aspas como argumento.');process.exit(1)} console.log(b.hashSync(p,12))" "SUA_SENHA_FORTE_AQUI"
-   ```
-
-   Substitua o texto de exemplo pela sua própria senha, execute localmente e coloque somente o hash retornado em `ADMIN_PASSWORD_HASH`. Não compartilhe a senha real nem publique o arquivo `.env`.
-
-6. Inicie o servidor e abra o endereço local:
-
-   ```bash
-   npm run dev
-   ```
-
-   Acesse http://localhost:3333.
-
-## Testes
-
-```bash
-npm test
-node --check src/server.js
-```
-
-## O que o projeto oferece
-
-- Mural de pessoas, instituições, casos e relações, com fontes externas rastreáveis.
-- Fichas de afirmações persistidas no Turso/libSQL: pessoa, data, material original, timestamp, contexto, tema, tipo e rótulo de evidência.
-- Página pública de afirmações publicada somente após aprovação editorial, com links para o original e links diretos ao minuto do vídeo.
-- Comparação lado a lado, filtros e linha do tempo por pessoa/data, sem um ranking de candidatos.
-- Revisão manual e assistida por IA (Gemini quando `GEMINI_API_KEY` existe; OpenAI como alternativa), com resultado registrado como sugestão e sem publicação automática.
-- Fila de revisão editorial com aprovação e publicação em etapas separadas, histórico de alterações e ação para desfazer a última alteração da ficha.
-- Envio público de correções; elas ficam pendentes até triagem e só são mostradas quando aceitas.
-- Votação participativa mensal de prioridades temáticas com painel que atualiza periodicamente. Não é uma pesquisa eleitoral; a região é opcional e autodeclarada.
-- Métricas agregadas opcionais, sem guardar textos pesquisados, endereços IP ou identificadores de visitante nas tabelas de analytics.
-- Painel administrativo servido por rota privada, sem link no menu público, protegido por sessão Turso, CSRF e limite de tentativas de login.
-- Processamento automático de até três fontes por dia via Vercel Cron, com fallback entre modelos Gemini e registro de erros para novas tentativas.
-
-## Revisão de fontes preexistentes
-
-O painel privado mantém a fila `source_queue` já utilizada pelo projeto: carrega as fontes, permite processar manualmente até três fontes por execução e usa Gemini para extrair título/resumo e apontar limitações. Na produção, um Vercel Cron roda diariamente e tenta processar até três pendências sem exigir clique manual; quando a fila não tem pendências, pode recuperar itens presos em processamento ou retentar erros antigos. A leitura do texto da URL é um apoio, não um veredito; o conteúdo extraído nunca publica uma afirmação sozinho. A revisão direta de um trecho com Gemini continua disponível em um painel separado.
-
-## Como publicar uma afirmação
-
-1. Acesse o painel administrativo restrito e autentique-se. O painel não aparece na navegação pública.
-2. Abra **Afirmações** e preencha a fonte original, a fala literal, a data/timestamp e o contexto. Selecione o tema e registre os links primários/jornalísticos, inclusive evidências contrárias.
-3. Salve como rascunho. Ele não aparece publicamente.
-4. Abra **Revisão editorial** e registre uma revisão humana. A IA pode ajudar a apontar lacunas e divergências; seu retorno não é prova nem decisão final.
-5. Aprove a ficha somente após conferir as fontes. A publicação é uma ação separada. Correções posteriores ficam no histórico e podem ser triadas no painel.
-
-## Variáveis de ambiente
-
-Obrigatórias: `SESSION_SECRET` (segredo aleatório com 32+ caracteres), `ADMIN_PASSWORD_HASH` (hash bcrypt) e um par correspondente de banco Turso/libSQL: `HOST_TURSO` + `TOKEN_TURSO` ou `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN`. Para o Preview, use um banco de teste separado; não compartilhe o mesmo banco de produção.
-
-Opcionais: `GEMINI_API_KEY`, `GEMINI_MODEL`, `OPENAI_API_KEY` e `OPENAI_MODEL`. Em produção, configure também `CRON_SECRET` com um segredo aleatório (mínimo recomendado: 16 caracteres) para autenticar o processamento agendado da Vercel. As chaves ficam em **Vercel → Project Settings → Environment Variables**, nunca no Git ou no frontend. `GEMINI_API_KEY` habilita a revisão de afirmações pelo Gemini; o servidor usa OpenAI como fallback se só houver `OPENAI_API_KEY`.
-
-## Limites e cuidados ainda necessários
-
-- IA não confirma fontes automaticamente e não substitui revisão humana.
-- A votação agrega apenas respostas do site; não é amostra representativa, pesquisa eleitoral, margem de erro ou estimativa da opinião da população.
-- Estado/cidade/país da votação são informados voluntariamente e não verificados.
-- O painel marca fichas antigas e fichas sem fontes externas, mas ainda não faz verificação automática de todos os links mortos.
-- Configure backups no Turso e teste a restauração. Revise a segurança, a privacidade e os requisitos LGPD antes de um uso sensível ou grande escala.
-- Não registre senhas, tokens ou conteúdo privado nos logs.
-
-## Variáveis de ambiente na Vercel
-
-Configure `HOST_TURSO`, `TOKEN_TURSO`, `SESSION_SECRET` e `ADMIN_PASSWORD_HASH` em **Project Settings → Environment Variables**. Não publique os valores no GitHub. Após mudar variáveis de ambiente, faça um novo deploy.
+## Configuração e testes
+Node.js 22.x, Git e Turso/libSQL. Configure HOST_TURSO/TOKEN_TURSO (ou TURSO_DATABASE_URL/TURSO_AUTH_TOKEN), SESSION_SECRET, ADMIN_PASSWORD_HASH, GEMINI_API_KEY e CRON_SECRET. Nunca coloque senhas/tokens no GitHub. Execute npm test e node --check src/server.js. O cron exige Authorization: Bearer CRON_SECRET. Faça backups regulares do banco.

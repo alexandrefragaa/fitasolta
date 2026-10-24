@@ -722,6 +722,22 @@ async function updateTursoSource(id, status, title, summary, errorMessage) {
   if (payload?.results?.[0]?.type !== "ok") throw new Error("O Turso rejeitou a atualização.");
 }
 
+
+const AUTOMATIC_SOURCE_FEEDS=[
+ {name:"Agência Brasil",url:"https://agenciabrasil.ebc.com.br/rss/ultimasnoticias/feed.xml"},
+ {name:"Agência Senado",url:"https://www12.senado.leg.br/noticias/rss.xml"},
+ {name:"Agência Câmara",url:"https://www.camara.leg.br/noticias/rss/ultimas-noticias"}
+];
+const AUTOMATIC_SOURCE_HOSTS=["agenciabrasil.ebc.com.br","senado.leg.br","camara.leg.br","gov.br","stf.jus.br"];
+function sourceIdentityKey(raw){const safe=sanitizeTursoSourceUrl(raw);if(!safe)return"";try{const u=new URL(safe);u.hash="";for(const k of [...u.searchParams.keys()])if(/^(utm_|fbclid|gclid|ref$)/i.test(k))u.searchParams.delete(k);return u.href.replace(/\/$/,"").toLowerCase()}catch{return""}}
+function decodeFeedText(v){return String(v||"").replace(/^<!\[CDATA\[/i,"").replace(/\]\]>$/i,"").replace(/<[^>]+>/g," ").replace(/&nbsp;/gi," ").replace(/&amp;/gi,"&").replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'").replace(/&lt;/gi,"<").replace(/&gt;/gi,">").replace(/&#(\d+);/g,(_,c)=>String.fromCharCode(Number(c))).replace(/\s+/g," ").trim()}
+function readFeedTag(b,t){const m=b.match(new RegExp("<"+t+"(?:\\s[^>]*)?>([\\s\\S]*?)<\\/"+t+">","i"));return decodeFeedText(m?.[1]||"")}
+function parseRssFeed(xml,feed){return [...String(xml||"").matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)].slice(0,25).map((m)=>{const item=m[1],title=readFeedTag(item,"title"),url=sanitizeTursoSourceUrl(readFeedTag(item,"link")),when=Date.parse(readFeedTag(item,"pubDate")||readFeedTag(item,"dc:date"));if(!title||!url)return null;let host="";try{host=new URL(url).hostname.toLowerCase()}catch{return null}if(!AUTOMATIC_SOURCE_HOSTS.some((d)=>host===d||host.endsWith("."+d)))return null;return{title:cleanString(title,{max:250})||title.slice(0,250),url,feed,publishedMs:Number.isFinite(when)?when:0}}).filter(Boolean)}
+async function insertTursoSourceFromFeed(item){const sql="INSERT INTO source_queue (id,url,status,title,summary,error_message,created_at,updated_at) VALUES (?, ?, 'pending', ?, '', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",args=[crypto.randomUUID(),item.url,item.title].map((v)=>({type:"text",value:String(v)}));const r=await fetch(getTursoSourcesBaseUrl()+"/v2/pipeline",{method:"POST",headers:{Authorization:"Bearer "+TURSO_TOKEN.trim(),"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({requests:[{type:"execute",stmt:{sql,args}},{type:"close"}]}),signal:AbortSignal.timeout(15000)});if(!r.ok)throw new Error("Turso insert HTTP "+r.status);const p=await r.json();if(p?.results?.[0]?.type!=="ok")throw new Error("Turso rejected feed item")}
+async function discoverDailySources(queue){const pending=queue.filter((s)=>s.status==="pending").length,limit=pending>=3?1:Math.max(1,3-pending),seen=new Set(queue.map((s)=>sourceIdentityKey(s.url)).filter(Boolean));const feeds=await Promise.all(AUTOMATIC_SOURCE_FEEDS.map(async(f)=>{try{const r=await fetch(f.url,{headers:{"User-Agent":"FitaSoltaBot/1.0 (+https://fitasolta.vercel.app)",Accept:"application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5"},signal:AbortSignal.timeout(12000)});if(!r.ok)throw new Error("HTTP "+r.status);return parseRssFeed((await r.text()).slice(0,1500000),f.name)}catch(e){console.warn("Feed indisponível:",f.name,e?.name||"Error");return[]}}));const candidates=feeds.flat().sort((a,b)=>b.publishedMs-a.publishedMs),added=[];for(const item of candidates){const key=sourceIdentityKey(item.url);if(!key||seen.has(key))continue;try{await insertTursoSourceFromFeed(item);seen.add(key);added.push({title:item.title,feed:item.feed});if(added.length>=limit)break}catch(e){console.warn("Falha ao importar feed:",e?.name||"Error")}}return added}
+async function ensureGeneratedEntity(name,type,description,url,date,isDoc=false){const n=cleanString(name,{min:2,max:200,required:true});if(!n)return null;if(isDoc&&url){const x=await db.prepare("SELECT id FROM entities WHERE source_url=? LIMIT 1").get(url);if(x?.id)return x.id}const old=await db.prepare("SELECT id FROM entities WHERE lower(name)=lower(?) AND type=? LIMIT 1").get(n,type);if(old?.id)return old.id;const id=crypto.randomUUID();await insertEntity.run(id,n,type,cleanString(description||"",{max:4500})||"",url||"",isIsoDate(date||"")?date:"","nao_verificado");return id}
+async function persistSourceConnections(source,r){const date=isIsoDate(r.event_date||"")?r.event_date:"",doc=await ensureGeneratedEntity(r.title,"document","Fonte extraída automaticamente. "+formatStructuredSourceSummary(r),source.url,date,true);if(!doc)return;const names=[...r.people.map((name)=>({name,type:"person"})),...r.organizations.map((name)=>({name,type:"institution"})),...r.cases.map((name)=>({name,type:"process"}))];for(const entry of names){if(!entry.name||entry.name.toLowerCase()===r.title.toLowerCase())continue;const id=await ensureGeneratedEntity(entry.name,entry.type,"Menção detectada automaticamente em fonte pública; não implica culpa ou comprovação independente.","",date);if(!id||id===doc)continue;const found=await db.prepare("SELECT id FROM relationships WHERE source_id=? AND target_id=? AND source_url=? LIMIT 1").get(id,doc,source.url);if(found?.id)continue;await db.prepare("INSERT INTO relationships (id,source_id,target_id,label,relation_type,description,source_url,source_date,evidence_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(crypto.randomUUID(),id,doc,"mencionado em","referencia_documentada","O termo aparece na fonte. A ligação registra menção, não responsabilidade nem culpa.",source.url,date,"documentado")}}
+
 function isAllowedSourceUrl(value) {
   const safe = sanitizeTursoSourceUrl(value);
   if (!safe) return false;
@@ -764,23 +780,40 @@ async function extractSourcePage(rawUrl) {
   throw new Error("Não foi possível abrir a fonte.");
 }
 
+
 async function summarizeExtractedSource(source) {
-  const prompt = [
-    "Resuma esta fonte jornalística ou documental em português brasileiro usando somente o texto extraído. Não invente fatos.",
-    "Retorne JSON válido com title (string curta), summary (2 a 4 frases neutras, até 900 caracteres) e limitations (array de até 3 ressalvas). Diferencie alegação, investigação, acusação, decisão, condenação, absolvição e anulação.",
-    "URL: " + source.url,
-    "Título HTML: " + (source.title || "(ausente)"),
-    "Texto extraído:\n" + source.text
-  ].join("\n\n");
-  const { payload } = await generateGeminiJson(prompt);
-  const raw = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
-  if (!raw) throw new Error("Gemini retornou resposta vazia.");
-  const parsed = JSON.parse(raw);
-  return {
-    title: cleanString(parsed.title || source.title || source.url, { max: 300 }) || source.url,
-    summary: cleanString(parsed.summary || "", { max: 1000 }) || "Texto extraído, sem resumo disponível.",
-    limitations: Array.isArray(parsed.limitations) ? parsed.limitations.slice(0, 3).map((v) => cleanString(v, { max: 250 })).filter(Boolean) : []
-  };
+ const prompt=[
+  "Organize esta fonte em português brasileiro para um mural público. Use exclusivamente o texto extraído; nunca invente nomes, datas, números de processos, leis, sentenças ou andamento.",
+  "Diferencie alegação, denúncia, investigação, decisão provisória, condenação, absolvição, soltura, anulação e recurso. A menção de uma pessoa não implica culpa. Não decida verdadeiro/falso/fake com base apenas num resumo.",
+  "Retorne JSON válido com title (até 250 caracteres), category (Política, Justiça e processos, Segurança, Economia, Saúde, Educação, Meio ambiente, Trabalho, Direitos e cidadania, Eleições, Governo e medidas ou Outros), event_date (AAAA-MM-DD só se explícita), people (até 6), organizations (até 6), cases (até 4 processos explícitos), legal_status (até 220 caracteres), summary (2-4 frases neutras até 850 caracteres), key_points (até 5 itens), source_limitations (até 300 caracteres). Use strings/arrays vazios quando não houver dado explícito.",
+  "URL: "+source.url,"Título HTML: "+(source.title||"(ausente)"),"Texto extraído:\n"+source.text
+ ].join("\n\n");
+ const {payload}=await generateGeminiJson(prompt);
+ const raw=payload?.candidates?.[0]?.content?.parts?.map((p)=>p.text||"").join("").trim();
+ if(!raw)throw new Error("Gemini retornou resposta vazia.");
+ const p=JSON.parse(raw),allowed=new Set(["Política","Justiça e processos","Segurança","Economia","Saúde","Educação","Meio ambiente","Trabalho","Direitos e cidadania","Eleições","Governo e medidas","Outros"]);
+ const list=(v,n)=>Array.isArray(v)?v.slice(0,n).map((x)=>cleanString(x,{max:180})).filter(Boolean):[];
+ return {
+  title:cleanString(p.title||source.title||source.url,{max:250})||source.url,
+  category:allowed.has(p.category)?p.category:"Outros",
+  event_date:isIsoDate(String(p.event_date||""))?String(p.event_date):"",
+  people:list(p.people,6),organizations:list(p.organizations,6),cases:list(p.cases,4),
+  legal_status:cleanString(p.legal_status||"",{max:220})||"",
+  summary:cleanString(p.summary||"",{max:850})||"Texto extraído, sem resumo confiável.",
+  key_points:list(p.key_points,5),source_limitations:cleanString(p.source_limitations||"",{max:300})||""
+ };
+}
+function formatStructuredSourceSummary(r) {
+ return [
+  "Categoria: "+r.category,r.event_date?"Data mencionada: "+r.event_date:"",
+  r.people.length?"Pessoas citadas: "+r.people.join(", "):"",
+  r.organizations.length?"Instituições citadas: "+r.organizations.join(", "):"",
+  r.cases.length?"Casos e processos: "+r.cases.join("; "):"",
+  r.legal_status?"Andamento mencionado pela fonte: "+r.legal_status:"",
+  "Resumo da fonte: "+r.summary,...r.key_points.map((x)=>"Ponto relevante: "+x),
+  r.source_limitations?"Limites do material: "+r.source_limitations:"",
+  "Nota: resumo automatizado; não é veredito e não substitui a fonte original."
+ ].filter(Boolean).join("\n").slice(0,3500);
 }
 
 const processSourcesLimiter = rateLimit({
@@ -791,33 +824,17 @@ const processSourcesLimiter = rateLimit({
   message: { error: "Muitas execuções. Aguarde antes de tentar novamente." }
 });
 
-async function processSourceItems(req, sources) {
-  const results = [];
 
-  for (const source of sources) {
-    try {
-      await updateTursoSource(source.id, "processing", source.title, source.summary, "");
-      const extracted = await extractSourcePage(source.url);
-      const review = await summarizeExtractedSource(extracted);
-      const notes = review.limitations.length ? "Limitações: " + review.limitations.join("; ") : "";
-      await updateTursoSource(source.id, "completed", review.title, review.summary, notes);
-      await audit(req, "source_processed", "source_queue", source.id);
-      results.push({ id: source.id, url: source.url, status: "completed", title: review.title });
-    } catch (error) {
-      const message = String(error?.message || "Falha no processamento").slice(0, 350);
-      await updateTursoSource(source.id, "error", source.title, source.summary, message).catch(() => {});
-      console.error("Falha ao processar fonte", String(source.id || "").slice(0, 80), message);
-      results.push({ id: source.id, url: source.url, status: "error", error: message });
-    }
-  }
-
-  return {
-    ok: true,
-    processed: results.length,
-    completed: results.filter((item) => item.status === "completed").length,
-    errors: results.filter((item) => item.status === "error").length,
-    results
-  };
+async function processSourceItems(req,sources){
+ const results=[];
+ for(const source of sources){try{
+  await updateTursoSource(source.id,"processing",source.title,source.summary,"");
+  const extracted=await extractSourcePage(source.url),review=await summarizeExtractedSource(extracted);
+  await updateTursoSource(source.id,"completed",review.title,formatStructuredSourceSummary(review),review.source_limitations||"");
+  try{await persistSourceConnections(source,review)}catch(e){console.warn("Fonte concluída; conexões parciais:",e?.name||"Error")}
+  await audit(req,"source_processed","source_queue",source.id);results.push({id:source.id,url:source.url,status:"completed",title:review.title});
+ }catch(error){const message=String(error?.message||"Falha no processamento").slice(0,350);await updateTursoSource(source.id,"error",source.title,source.summary,message).catch(()=>{});console.error("Falha ao processar fonte",String(source.id||"").slice(0,80),message);results.push({id:source.id,url:source.url,status:"error",error:message})}}
+ return{ok:true,processed:results.length,completed:results.filter((x)=>x.status==="completed").length,errors:results.filter((x)=>x.status==="error").length,results};
 }
 
 app.post("/api/admin/process-sources", processSourcesLimiter, requireCsrf, requireAdmin, async (req, res) => {
@@ -850,71 +867,17 @@ app.post("/api/admin/process-sources", processSourcesLimiter, requireCsrf, requi
 
 // Vercel Cron chama este endpoint uma vez por dia. O segredo é enviado no
 // cabeçalho Authorization e impede que visitantes disparem processamento pago.
-app.get("/api/cron/process-sources", async (req, res) => {
-  if (!CRON_SECRET || req.get("authorization") !== `Bearer ${CRON_SECRET}`) {
-    return res.status(401).json({ error: "Não autorizado." });
-  }
-  if (!GEMINI_API_KEY.trim()) {
-    return res.status(503).json({ error: "GEMINI_API_KEY não está configurada." });
-  }
-
-  let queue;
-  try {
-    queue = await readTursoSourceQueue();
-  } catch (error) {
-    console.error("Cron não conseguiu carregar a fila do Turso:", error?.code || error?.name || "Error");
-    return res.status(502).json({ error: "Não foi possível carregar a fila de fontes." });
-  }
-
-  // Prioriza novas fontes. Só tenta novamente erros antigos quando não restar
-  // nenhuma pendente; itens presos em processing são recuperados após 15 min.
-  let sources = queue.filter((source) => source.status === "pending").slice(0, 3);
-  let mode = "pending";
-
-  if (!sources.length) {
-    const now = Date.now();
-    const staleProcessing = queue.filter((source) => {
-      if (source.status !== "processing") return false;
-      const updated = Date.parse(String(source.updated_at || ""));
-      return Number.isFinite(updated) && now - updated >= 15 * 60 * 1000;
-    });
-    const staleErrors = queue.filter((source) => {
-      if (source.status !== "error") return false;
-      const updated = Date.parse(String(source.updated_at || ""));
-      return Number.isFinite(updated) && now - updated >= 24 * 60 * 60 * 1000;
-    });
-    sources = [...staleProcessing, ...staleErrors].slice(0, 3);
-    mode = sources.some((source) => source.status === "processing") ? "recover_stale" : "retry_errors";
-  }
-
-  if (!sources.length) {
-    return res.set("Cache-Control", "no-store").json({
-      ok: true,
-      mode: "idle",
-      processed: 0,
-      completed: 0,
-      errors: 0,
-      message: "Nenhuma fonte elegível para processamento automático neste momento."
-    });
-  }
-
-  const result = await processSourceItems(req, sources);
-  console.log("Cron FitaSolta:", JSON.stringify({
-    mode,
-    processed: result.processed,
-    completed: result.completed,
-    errors: result.errors
-  }));
-
-  return res.set("Cache-Control", "no-store").json({
-    ok: result.errors === 0,
-    mode,
-    processed: result.processed,
-    completed: result.completed,
-    errors: result.errors
-  });
+app.get("/api/cron/process-sources",async(req,res)=>{
+ if(!CRON_SECRET||req.get("authorization")!=="Bearer "+CRON_SECRET)return res.status(401).json({error:"Não autorizado."});
+ if(!GEMINI_API_KEY.trim())return res.status(503).json({error:"GEMINI_API_KEY não está configurada."});
+ let queue;try{queue=await readTursoSourceQueue()}catch(e){console.error("Cron Turso:",e?.code||e?.name||"Error");return res.status(502).json({error:"Não foi possível consultar a fila."})}
+ let discovered=[];try{discovered=await discoverDailySources(queue);if(discovered.length)queue=await readTursoSourceQueue()}catch(e){console.warn("Descoberta diária falhou:",e?.name||"Error")}
+ let sources=queue.filter((x)=>x.status==="pending").slice(0,3),mode=discovered.length?"discover_and_process":"pending";
+ if(!sources.length){const now=Date.now();sources=queue.filter((x)=>["processing","error"].includes(x.status)).filter((x)=>{const t=Date.parse(String(x.updated_at||""));return Number.isFinite(t)&&(x.status==="processing"?now-t>=15*60*1000:now-t>=24*60*60*1000)}).slice(0,3);mode=sources.some((x)=>x.status==="processing")?"recover_stale":"retry_errors"}
+ if(!sources.length)return res.set("Cache-Control","no-store").json({ok:true,mode:"idle",discovered:discovered.length,processed:0,completed:0,errors:0});
+ const result=await processSourceItems(req,sources);console.log("Cron FitaSolta:",JSON.stringify({mode,discovered:discovered.length,processed:result.processed,completed:result.completed,errors:result.errors}));
+ return res.set("Cache-Control","no-store").json({ok:result.errors===0,mode,discovered:discovered.length,processed:result.processed,completed:result.completed,errors:result.errors});
 });
-
 
 app.get("/api/admin/sources", requireAdmin, async (req, res) => {
   try {
@@ -1290,32 +1253,23 @@ app.delete("/api/relationships/:id", requireCsrf, requireAdmin, asyncHandler(asy
 }));
 
 /* Fontes externas: URLs distintas referenciadas por entidades e relações. */
-app.get("/api/sources", asyncHandler(async (req, res) => {
-  try {
-    const rows = await db.prepare(`
-      SELECT source_url AS url, MAX(name) AS title,
-             MAX(description) AS description, COUNT(*) AS reference_count
-      FROM (
-        SELECT source_url, name, description FROM entities WHERE source_url <> ''
-        UNION ALL
-        SELECT source_url, label AS name, description FROM relationships WHERE source_url <> ''
-      )
-      GROUP BY source_url
-      ORDER BY url ASC
-      LIMIT 500
-    `).all();
-    const sources = rows.map((row) => ({
-      url: row.url,
-      title: row.title || row.url,
-      description: row.description || "",
-      references: Number(row.reference_count || 0)
-    }));
-    res.set("Cache-Control", "no-store").json({ sources });
-  } catch (error) {
-    console.error("Erro ao consultar fontes externas.");
-    res.status(500).json({ error: "Não foi possível carregar as fontes externas." });
-  }
+app.get("/api/sources", asyncHandler(async (req,res)=>{
+ try{
+  const [queue,registered,entityCount,relationCount]=await Promise.all([
+   readTursoSourceQueue(),
+   db.prepare("SELECT source_url AS url,MAX(name) AS title,MAX(description) AS description,COUNT(*) AS reference_count FROM (SELECT source_url,name,description FROM entities WHERE source_url<>'' UNION ALL SELECT source_url,label AS name,description FROM relationships WHERE source_url<>'') GROUP BY source_url ORDER BY url ASC LIMIT 500").all(),
+   db.prepare("SELECT COUNT(*) AS total FROM entities").get(),
+   db.prepare("SELECT COUNT(*) AS total FROM relationships").get()
+  ]);
+  const map=new Map();
+  for(const s of queue){if(s.status!=="completed"||!s.url)continue;const category=s.summary.match(/^Categoria:\s*([^\n]+)/m)?.[1]?.trim()||"Outros";map.set(sourceIdentityKey(s.url)||s.url,{id:s.id,url:s.url,title:s.title||s.url,summary:s.summary||"",description:s.summary||"",status:"completed",category,references:0,created_at:s.created_at,updated_at:s.updated_at})}
+  for(const r of registered){if(!r.url)continue;const key=sourceIdentityKey(r.url)||r.url,old=map.get(key);if(old)old.references+=Number(r.reference_count||0);else map.set(key,{id:"",url:r.url,title:r.title||r.url,summary:r.description||"",description:r.description||"",status:"registered",category:"Outros",references:Number(r.reference_count||0),created_at:"",updated_at:""})}
+  const sources=[...map.values()].sort((a,b)=>(Date.parse(b.updated_at||b.created_at||"")||0)-(Date.parse(a.updated_at||a.created_at||"")||0)||a.title.localeCompare(b.title,"pt-BR")),done=queue.filter((x)=>x.status==="completed");
+  const stats={published:sources.length,completed:done.length,pending:queue.filter((x)=>x.status==="pending").length,processing:queue.filter((x)=>x.status==="processing").length,errors:queue.filter((x)=>x.status==="error").length,connections:Number(relationCount?.total||0),entities:Number(entityCount?.total||0),lastUpdated:done.map((x)=>x.updated_at).filter(Boolean).sort().at(-1)||""};
+  res.set("Cache-Control","no-store").json({sources,stats,queueAvailable:true,generatedAt:new Date().toISOString()});
+ }catch(error){console.error("Erro ao consultar fila de fontes:",error?.code||error?.name||"Error");res.status(502).json({error:"Não foi possível ler as fontes processadas do Turso."})}
 }));
+
 
 /* Fontes externas são registradas por URL, sem armazenar arquivos no servidor. */
 
@@ -1890,48 +1844,8 @@ const topicVoteLimiter = rateLimit({
   message: { error: "Muitos votos nesta hora. Aguarde antes de votar novamente." }
 });
 
-app.post("/api/topic-votes", topicVoteLimiter, requireCsrf, asyncHandler(async (req, res) => {
-  const topic = CLAIM_TOPICS.has(req.body?.topic) ? req.body.topic : null;
-  const country = cleanString(req.body?.country || "", { max: 60 });
-  const state = cleanString(req.body?.state || "", { max: 100 });
-  const city = cleanString(req.body?.city || "", { max: 100 });
-  if (!topic || country === null || state === null || city === null ||
-      !isSafeRegionLabel(country) || !isSafeRegionLabel(state) || !isSafeRegionLabel(city)) {
-    return res.status(400).json({ error: "Escolha um tema e confira os campos opcionais de região." });
-  }
-  const period = new Date().toISOString().slice(0, 7);
-  const voteKey = getVoteKey(req, res);
-  await db.prepare(`
-    INSERT INTO topic_votes (id, poll_period, topic, country, state, city, vote_key)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(poll_period, vote_key) DO UPDATE SET topic = excluded.topic, country = excluded.country,
-      state = excluded.state, city = excluded.city, updated_at = CURRENT_TIMESTAMP
-  `).run(crypto.randomUUID(), period, topic, country, state, city, voteKey);
-  await trackAggregate("topic_vote", topic);
-  res.status(201).json({ ok: true, period, message: "Preferência temática registrada. Você pode alterá-la durante este mês." });
-}));
-
-app.get("/api/topic-votes/results", asyncHandler(async (req, res) => {
-  const period = /^\d{4}-\d{2}$/.test(String(req.query.period || "")) ? String(req.query.period) : new Date().toISOString().slice(0, 7);
-  const grouped = await db.prepare("SELECT topic, COUNT(*) AS votes FROM topic_votes WHERE poll_period = ? GROUP BY topic ORDER BY votes DESC, topic ASC").all(period);
-  const totalRow = await db.prepare("SELECT COUNT(*) AS total FROM topic_votes WHERE poll_period = ?").get(period);
-  const total = Number(totalRow?.total || 0);
-  const topics = grouped.map(row => ({
-    topic: row.topic, label: TOPIC_VOTE_LABELS[row.topic] || row.topic,
-    votes: Number(row.votes || 0), percentage: total ? Math.round(Number(row.votes || 0) * 1000 / total) / 10 : 0
-  }));
-  const regions = await db.prepare(`
-    SELECT country, state, city, COUNT(*) AS votes FROM topic_votes
-    WHERE poll_period = ? AND (country <> '' OR state <> '' OR city <> '')
-    GROUP BY country, state, city HAVING COUNT(*) >= 3
-    ORDER BY votes DESC LIMIT 50
-  `).all(period);
-  res.set("Cache-Control", "no-store").json({
-    period, total, topics,
-    regions: regions.map(row => ({ country: row.country, state: row.state, city: row.city, votes: Number(row.votes || 0) })),
-    region_note: "Regiões informadas voluntariamente pelos participantes; não são verificadas por geolocalização."
-  });
-}));
+app.all("/api/topic-votes",(req,res)=>res.set("Cache-Control","no-store").status(410).json({error:"A votação foi desativada no FitaSolta."}));
+app.all("/api/topic-votes/results",(req,res)=>res.set("Cache-Control","no-store").status(410).json({error:"Os resultados de votação não estão mais disponíveis."}));
 
 app.use("/api", (req, res) => {
   res.status(404).json({ error: "Rota da API não encontrada." });
@@ -1953,13 +1867,8 @@ app.get("/admin", (req, res, next) => {
 
 // A fila de revisão editorial também exige sessão; visitantes são direcionados
 // à tela de login sem receber o HTML da ferramenta.
-app.get("/revisao.html", (req, res, next) => {
-  if (req.session?.isAdmin !== true) return res.redirect(302, "/admin");
-  res.set("Cache-Control", "private, no-store, max-age=0");
-  res.set("X-Robots-Tag", "noindex, nofollow, noarchive");
-  res.sendFile(path.join(publicDir, "revisao.html"), (error) => {
-    if (error && !res.headersSent) next(error);
-  });
+app.get(["/debates.html","/comparar.html","/votacao.html","/revisao.html"],(req,res)=>{
+ res.set("Cache-Control","no-store");res.set("X-Robots-Tag","noindex, nofollow, noarchive");return res.redirect(302,"/#fontes");
 });
 
 app.use(express.static(publicDir, {

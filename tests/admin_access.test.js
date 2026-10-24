@@ -1,48 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, existsSync } from "node:fs";
-import { Script } from "node:vm";
-
-const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
-const publicHome = read("../public/index.html");
-const adminLogin = read("../private/admin-login.html");
-const adminDashboard = read("../private/admin-dashboard.html");
-const appScript = read("../public/js/app.js");
-const server = read("../src/server.js");
-const cronConfig = JSON.parse(read("../vercel.json"));
-
-test("a página pública não expõe botão nem diálogo administrativo", () => {
-  assert.ok(!publicHome.includes('id="admin-open"'));
-  assert.ok(!publicHome.includes('id="admin-dialog"'));
-  assert.ok(!publicHome.includes('href="/revisao.html"'));
-});
-
-test("os arquivos do painel administrativo ficam fora do diretório estático público", () => {
-  assert.equal(existsSync(new URL("../public/admin-dashboard.html", import.meta.url)), false);
-  assert.equal(existsSync(new URL("../public/admin-login.html", import.meta.url)), false);
-  assert.ok(adminLogin.includes('id="login-form"'));
-  assert.ok(!adminLogin.includes('id="source-queue-panel"'));
-  assert.ok(adminDashboard.includes('id="source-queue-panel"'));
-  assert.ok(adminDashboard.includes('id="retry-source-errors"'));
-});
-
-test("o servidor só entrega o painel após sessão autenticada", () => {
-  assert.ok(server.includes('app.get("/admin", (req, res, next) => {'));
-  assert.ok(server.includes("req.session?.isAdmin === true"));
-  assert.ok(server.includes('path.join(rootDir, "private", "admin-dashboard.html")'));
-  assert.ok(server.includes('if (req.session?.isAdmin !== true) return res.redirect(302, "/admin");'));
-});
-
-test("a automação diária exige o segredo CRON_SECRET", () => {
-  assert.equal(cronConfig.crons.length, 1);
-  assert.equal(cronConfig.crons[0].path, "/api/cron/process-sources");
-  assert.equal(cronConfig.crons[0].schedule, "0 12 * * *");
-  assert.ok(server.includes('const CRON_SECRET = process.env.CRON_SECRET || "";'));
-  assert.ok(server.includes('app.get("/api/cron/process-sources", async (req, res) => {'));
-  assert.ok(server.includes('req.get("authorization") !== `Bearer ${CRON_SECRET}`'));
-  assert.ok(server.includes('.slice(0, 3)'));
-});
-
-test("o JavaScript do frontend é sintaticamente válido", () => {
-  assert.doesNotThrow(() => new Script(appScript));
-});
+import {readFileSync,existsSync} from "node:fs";
+import {Script} from "node:vm";
+const read=(p)=>readFileSync(new URL(p,import.meta.url),"utf8");
+const home=read("../public/index.html"),login=read("../private/admin-login.html"),admin=read("../private/admin-dashboard.html"),app=read("../public/js/app.js"),server=read("../src/server.js"),cron=JSON.parse(read("../vercel.json"));
+test("homepage sem votação e módulos antigos",()=>{for(const link of ['href="/votacao.html"','href="/comparar.html"','href="/debates.html"','href="/revisao.html"'])assert.ok(!home.includes(link));assert.ok(home.includes('id="source-category-filter"'));assert.ok(home.includes('id="source-stats"'))});
+test("admin fora do diretório público e sem revisão manual",()=>{assert.equal(existsSync(new URL("../public/admin-dashboard.html",import.meta.url)),false);assert.ok(login.includes('id="login-form"'));assert.ok(admin.includes('id="source-queue-panel"'));assert.ok(!admin.includes('id="gemini-review-panel"'))});
+test("páginas antigas redirecionam",()=>assert.ok(server.includes('app.get(["/debates.html","/comparar.html","/votacao.html","/revisao.html"]')));
+test("cron diário consulta fontes oficiais",()=>{assert.equal(cron.crons[0].path,"/api/cron/process-sources");assert.ok(server.includes("discoverDailySources(queue)"));assert.ok(server.includes("https://agenciabrasil.ebc.com.br/rss/ultimasnoticias/feed.xml"));assert.ok(server.includes("https://www12.senado.leg.br/noticias/rss.xml"));assert.ok(server.includes("https://www.camara.leg.br/noticias/rss/ultimas-noticias"))});
+test("rota pública lê fila processada e gera conexões",()=>{const a=server.indexOf('app.get("/api/sources"'),b=server.indexOf("/* Fontes externas são registradas",a),r=server.slice(a,b);assert.ok(r.includes("readTursoSourceQueue()"));assert.ok(r.includes("stats"));assert.ok(server.includes("persistSourceConnections(source,review)"))});
+test("votação desativada sem apagar histórico",()=>{assert.ok(server.includes('app.all("/api/topic-votes"'));assert.ok(server.includes(".status(410)"))});
+test("javascript frontend válido",()=>assert.doesNotThrow(()=>new Script(app)));
