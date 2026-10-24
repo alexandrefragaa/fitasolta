@@ -32,3 +32,9 @@ test("backend distinguishes an unconfigured database from a fatal startup crash"
   assert.match(server, /DATABASE_NOT_CONFIGURED/);
   assert.match(server, /res\.status\(503\)/);
 });
+
+test("backend respects the explicit Vercel trust-proxy setting", () => {
+  const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  assert.match(server, /process\.env\.TRUST_PROXY === "1" \|\| IS_PRODUCTION/);
+  assert.match(server, /if \(TRUST_PROXY\) app\.set\("trust proxy", 1\)/);
+});
