@@ -4,10 +4,13 @@ import { readFileSync, existsSync } from "node:fs";
 import { Script } from "node:vm";
 const read=(p)=>readFileSync(new URL(p,import.meta.url),"utf8");
 const home=read("../public/index.html"),login=read("../private/admin-login.html"),admin=read("../private/admin-dashboard.html"),app=read("../public/js/app.js"),server=read("../src/server.js"),cron=JSON.parse(read("../vercel.json"));
-test("homepage stays compact and offers content filters, not voting",()=>{
+test("homepage is a plain investigative archive with useful filters",()=>{
  for(const link of ['href="/votacao.html"','href="/comparar.html"','href="/debates.html"','href="/revisao.html"'])assert.ok(!home.includes(link));
- assert.ok(home.includes('data-source-mode="claims"'));assert.ok(home.includes('data-source-mode="media"'));assert.ok(home.includes('data-source-mode="legal"'));
- assert.ok(home.includes('id="source-category-filter"'));assert.ok(home.includes('id="source-stats"'));
+ assert.ok(home.includes("Falas, documentos e evidências."));
+ for(const mode of ["all","claims","media","legal"])assert.ok(home.includes('data-source-mode="'+mode+'"'));
+ assert.ok(home.includes('id="source-person-filter"'));assert.ok(home.includes('id="source-category-filter"'));assert.ok(home.includes('id="source-verdict-filter"'));
+ assert.ok(!home.includes("source-stats"));assert.ok(!home.includes("analytics.js"));assert.ok(home.includes('id="criterios"'));
+ assert.ok(!read("../public/css/style.css").includes("@keyframes"));
 });
 test("admin intake is inside private dashboard",()=>{
  assert.equal(existsSync(new URL("../public/admin-dashboard.html",import.meta.url)),false);
@@ -22,7 +25,7 @@ test("queue stores raw text and media but public response hides raw text",()=>{
 });
 test("video caption parsing and evidence grounding exist",()=>{
  assert.ok(server.includes("fetchYouTubeTranscriptFromHtml"));assert.ok(server.includes("fetchYouTubeTranscriptById"));assert.ok(server.includes("FICHA_AUTO_JSON:"));assert.ok(server.includes('tools: [{ google_search: {} }]'));
- assert.ok(server.includes('verdict = "inconclusiva"'));assert.ok(server.includes("verificationBudget={remaining:Math.min(3,sources.length)}"));assert.ok(app.includes("youtube-nocookie.com/embed/"));assert.ok(app.includes("Fontes que contradizem ou limitam"));assert.ok(app.includes("Nenhuma fonte de apoio foi vinculada"));assert.ok(app.includes("não conseguiu vincular uma fonte que contradiga"));
+ assert.ok(server.includes('verdict = "inconclusiva"'));assert.ok(server.includes("verificationBudget={remaining:Math.min(3,sources.length)}"));assert.ok(app.includes("youtube-nocookie.com/embed/"));assert.ok(app.includes("Fontes que contradizem ou limitam"));assert.ok(app.includes("sourcePersonFilter"));assert.ok(app.includes("sourceVerdictFilter"));assert.ok(app.includes("Nenhuma fonte de apoio foi vinculada"));assert.ok(app.includes("não conseguiu vincular uma fonte que contradiga"));
 });
 test("daily automation remains protected",()=>{
  assert.equal(cron.crons[0].path,"/api/cron/process-sources");assert.equal(cron.crons[0].schedule,"0 12 * * *");
