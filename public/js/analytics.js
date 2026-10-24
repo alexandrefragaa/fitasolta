@@ -27,12 +27,8 @@
     return publicPaths.has(pathname)?pathname:"";
   }
   function reportCurrentClaim() {
-    const match=/^#claim:??([a-f0-9-]{20,80})$/i.exec(location.hash);
+    const match=/^#claim-([a-f0-9-]{20,80})$/i.exec(location.hash);
     if(match)send("claim_view","claim:"+match[1]);
-    else {
-      const old=/^#claim-([a-f0-9-]{20,80})$/i.exec(location.hash);
-      if(old)send("claim_view","claim:"+old[1]);
-    }
   }
   function setChoice(choice) {
     try { localStorage.setItem(CONSENT_KEY,choice); } catch {}
@@ -65,7 +61,7 @@
       try{if(localStorage.getItem("tc-analytics-consent")==="yes")choice="yes";}catch{}
     }
     notice.hidden=!!choice;
-    if(choice==="yes")send("page_view",currentResource());
+    if(choice==="yes"&&currentResource())send("page_view",currentResource());
   }
   window.tcAnalytics = Object.freeze({
     count(name) {
