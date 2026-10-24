@@ -198,6 +198,16 @@ async function initializeDatabase() {
       FOREIGN KEY (related_claim_id) REFERENCES claims(id) ON DELETE CASCADE,
       CHECK (claim_id <> related_claim_id)
     );
+    CREATE TABLE IF NOT EXISTS claim_entities (
+      id TEXT PRIMARY KEY, claim_id TEXT NOT NULL, entity_id TEXT NOT NULL,
+      relation_type TEXT NOT NULL DEFAULT 'mentions', explanation TEXT NOT NULL DEFAULT '',
+      editorial_status TEXT NOT NULL DEFAULT 'draft',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, published_at TEXT,
+      FOREIGN KEY (claim_id) REFERENCES claims(id) ON DELETE CASCADE,
+      FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE,
+      UNIQUE (claim_id, entity_id),
+      CHECK (editorial_status IN ('draft','in_review','approved','published','rejected','withdrawn'))
+    );
     CREATE TABLE IF NOT EXISTS cases (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -397,6 +407,7 @@ async function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_claim_relations_status ON claim_relations(editorial_status, relation_type);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires);
     CREATE INDEX IF NOT EXISTS idx_claims_topic_date ON claims(topic,claim_date);
+    CREATE INDEX IF NOT EXISTS idx_claim_entities_claim ON claim_entities(claim_id,editorial_status);
     CREATE INDEX IF NOT EXISTS idx_claim_sources_side ON claim_sources(claim_id,side);
     CREATE INDEX IF NOT EXISTS idx_claim_versions_claim ON claim_versions(claim_id,created_at);
     CREATE INDEX IF NOT EXISTS idx_corrections_status ON correction_reports(status,created_at);
@@ -972,7 +983,7 @@ app.get("/api/claims/:id", asyncHandler(async(req,res)=>{
     db.prepare("SELECT id,source_type,side,title,url,publisher,published_date,excerpt,notes,created_at FROM claim_sources WHERE claim_id=? ORDER BY created_at").all(claim.id),
     db.prepare("SELECT r.id,r.relation_type,r.explanation,c.id AS related_id,c.speaker AS related_speaker,c.quote AS related_quote,c.claim_date AS related_date,c.evidence_status AS related_evidence_status FROM claim_relations r JOIN claims c ON c.id=r.related_claim_id WHERE r.claim_id=? AND r.editorial_status='published' AND c.status='published' ORDER BY r.created_at DESC LIMIT 100").all(claim.id),
     db.prepare("SELECT id,summary,details,evidence_url,review_note,created_at,reviewed_at FROM correction_reports WHERE claim_id=? AND status='accepted' ORDER BY reviewed_at DESC LIMIT 100").all(claim.id),
-    db.prepare("SELECT ce.relation_type,ce.explanation,e.id AS entity_id,e.name,e.type,e.description,e.source_url,e.source_date,e.evidence_status FROM claim_entities ce JOIN entities e ON e.id=ce.entity_id WHERE ce.claim_id=? AND e.editorial_status='published' ORDER BY e.name").all(claim.id)
+    db.prepare("SELECT ce.relation_type,ce.explanation,e.id AS entity_id,e.name,e.type,e.description,e.source_url,e.source_date,e.evidence_status FROM claim_entities ce JOIN entities e ON e.id=ce.entity_id WHERE ce.claim_id=? AND ce.editorial_status='published' AND e.editorial_status='published' ORDER BY e.name").all(claim.id)
   ]);
   res.set("Cache-Control","no-store").json({claim:{...claim,journalism_checks:safeJsonArray(claim.journalism_checks)},sources,relations,corrections,entities});
 }));
