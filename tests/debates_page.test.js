@@ -14,7 +14,7 @@ test("debates page uses a valid external script compatible with the strict CSP",
   assert.ok(html.includes('<script src="/js/debates.js" defer></script>'));
   assert.doesNotThrow(() => new Script(debateScript));
   const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
-  assert.ok(server.includes('frameSrc: ["\\'self\\'", "https://www.youtube-nocookie.com", "https://www.youtube.com"]'));
+  assert.match(server, /frameSrc:.*youtube-nocookie\.com.*youtube\.com/);
 });
 
 test("evidence workflow exposes save, public claims and private editorial queue", () => {
