@@ -57,8 +57,8 @@
      speaker: data.speaker, video_url: data.videoUrl, timestamp: data.timestamp,
      quote: data.quote, context: data.context, claim_type: data.claimType,
      verdict: data.provisionalClassification, explanation: data.explanation,
-     journalism_checks: data.journalismChecks.join("\\n"),
-     primary_sources: data.primarySources.join("\\n"),
+     journalism_checks: data.journalismChecks.join("\n"),
+     primary_sources: data.primarySources.join("\n"),
      supporting_evidence: data.supportingEvidence,
      contradictory_evidence: data.contradictoryEvidence
     })
@@ -69,7 +69,7 @@
     throw new Error(payload.error || "Não foi possível salvar o rascunho.");
    }
    byId("export-status").textContent = "Rascunho salvo no banco persistente (ID " + payload.id + "). Não foi publicado; ainda exige revisão editorial.";
-   byId("export-status").dataset.text = "ID: " + payload.id + "\\n" + JSON.stringify(data, null, 2);
+   byId("export-status").dataset.text = "ID: " + payload.id + "\n" + JSON.stringify(data, null, 2);
   } catch (error) {
    byId("export-status").textContent = error.message || "Falha ao salvar. Você ainda pode exportar o JSON local.";
   } finally {
