@@ -760,7 +760,11 @@ function decodeFeedText(v){return String(v||"").replace(/^<!\[CDATA\[/i,"").repl
 function readFeedTag(b,t){const m=b.match(new RegExp("<"+t+"(?:\\s[^>]*)?>([\\s\\S]*?)<\\/"+t+">","i"));return decodeFeedText(m?.[1]||"")}
 function parseRssFeed(xml,feed){return [...String(xml||"").matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)].slice(0,25).map((m)=>{const item=m[1],title=readFeedTag(item,"title"),url=sanitizeTursoSourceUrl(readFeedTag(item,"link")),when=Date.parse(readFeedTag(item,"pubDate")||readFeedTag(item,"dc:date"));if(!title||!url)return null;let host="";try{host=new URL(url).hostname.toLowerCase()}catch{return null}if(!AUTOMATIC_SOURCE_HOSTS.some((d)=>host===d||host.endsWith("."+d)))return null;return{title:cleanString(title,{max:250})||title.slice(0,250),url,feed,publishedMs:Number.isFinite(when)?when:0}}).filter(Boolean)}
 async function insertTursoSourceFromFeed(item){const sql="INSERT INTO source_queue (id,url,status,title,summary,error_message,created_at,updated_at) VALUES (?, ?, 'pending', ?, '', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",args=[crypto.randomUUID(),item.url,item.title].map((v)=>({type:"text",value:String(v)}));const r=await fetch(getTursoSourcesBaseUrl()+"/v2/pipeline",{method:"POST",headers:{Authorization:"Bearer "+TURSO_TOKEN.trim(),"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify({requests:[{type:"execute",stmt:{sql,args}},{type:"close"}]}),signal:AbortSignal.timeout(15000)});if(!r.ok)throw new Error("Turso insert HTTP "+r.status);const p=await r.json();if(p?.results?.[0]?.type!=="ok")throw new Error("Turso rejected feed item")}
-async function discoverDailySources(queue){const pending=queue.filter((s)=>s.status==="pending").length,limit=pending>=3?1:Math.max(1,3-pending),seen=new Set(queue.map((s)=>sourceIdentityKey(s.url)).filter(Boolean));const feeds=await Promise.all(AUTOMATIC_SOURCE_FEEDS.map(async(f)=>{try{const r=await fetch(f.url,{headers:{"User-Agent":"FitaSoltaBot/1.0 (+https://fitasolta.vercel.app)",Accept:"application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5"},signal:AbortSignal.timeout(12000)});if(!r.ok)throw new Error("HTTP "+r.status);return parseRssFeed((await r.text()).slice(0,1500000),f.name)}catch(e){console.warn("Feed indisponível:",f.name,e?.name||"Error");return[]}}));const candidates=feeds.flat().sort((a,b)=>b.publishedMs-a.publishedMs),added=[];for(const item of candidates){const key=sourceIdentityKey(item.url);if(!key||seen.has(key))continue;try{await insertTursoSourceFromFeed(item);seen.add(key);added.push({title:item.title,feed:item.feed});if(added.length>=limit)break}catch(e){console.warn("Falha ao importar feed:",e?.name||"Error")}}return added}
+async function discoverDailySources(queue){
+ const pending=queue.filter((s)=>s.status==="pending").length;
+ const legacyBacklog=queue.some((s)=>s.status==="completed"&&!String(s.summary||"").includes("FICHA_AUTO_JSON:")&&(s.url||s.original_url||s.raw_text||s.media_url)&&!/^backfill_failed:/i.test(String(s.error_message||"")));
+ const limit=legacyBacklog?1:(pending>=3?1:Math.max(1,3-pending));
+ const seen=new Set(queue.map((s)=>sourceIdentityKey(s.original_url||s.url)).filter(Boolean));const feeds=await Promise.all(AUTOMATIC_SOURCE_FEEDS.map(async(f)=>{try{const r=await fetch(f.url,{headers:{"User-Agent":"FitaSoltaBot/1.0 (+https://fitasolta.vercel.app)",Accept:"application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5"},signal:AbortSignal.timeout(12000)});if(!r.ok)throw new Error("HTTP "+r.status);return parseRssFeed((await r.text()).slice(0,1500000),f.name)}catch(e){console.warn("Feed indisponível:",f.name,e?.name||"Error");return[]}}));const candidates=feeds.flat().sort((a,b)=>b.publishedMs-a.publishedMs),added=[];for(const item of candidates){const key=sourceIdentityKey(item.url);if(!key||seen.has(key))continue;try{await insertTursoSourceFromFeed(item);seen.add(key);added.push({title:item.title,feed:item.feed});if(added.length>=limit)break}catch(e){console.warn("Falha ao importar feed:",e?.name||"Error")}}return added}
 async function ensureGeneratedEntity(name,type,description,url,date,isDoc=false){const n=cleanString(name,{min:2,max:200,required:true});if(!n)return null;if(isDoc&&url){const x=await db.prepare("SELECT id FROM entities WHERE source_url=? LIMIT 1").get(url);if(x?.id)return x.id}const old=await db.prepare("SELECT id FROM entities WHERE lower(name)=lower(?) AND type=? LIMIT 1").get(n,type);if(old?.id)return old.id;const id=crypto.randomUUID();await insertEntity.run(id,n,type,cleanString(description||"",{max:4500})||"",url||"",isIsoDate(date||"")?date:"","nao_verificado");return id}
 async function persistSourceConnections(source,r){const date=isIsoDate(r.event_date||"")?r.event_date:"",doc=await ensureGeneratedEntity(r.title,"document","Fonte extraída automaticamente. "+formatStructuredSourceSummary(r),source.url,date,true);if(!doc)return;const names=[...r.people.map((name)=>({name,type:"person"})),...r.organizations.map((name)=>({name,type:"institution"})),...r.cases.map((name)=>({name,type:"process"}))];for(const entry of names){if(!entry.name||entry.name.toLowerCase()===r.title.toLowerCase())continue;const id=await ensureGeneratedEntity(entry.name,entry.type,"Menção detectada automaticamente em fonte pública; não implica culpa ou comprovação independente.","",date);if(!id||id===doc)continue;const found=await db.prepare("SELECT id FROM relationships WHERE source_id=? AND target_id=? AND source_url=? LIMIT 1").get(id,doc,source.url);if(found?.id)continue;await db.prepare("INSERT INTO relationships (id,source_id,target_id,label,relation_type,description,source_url,source_date,evidence_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(crypto.randomUUID(),id,doc,"mencionado em","referencia_documentada","O termo aparece na fonte. A ligação registra menção, não responsabilidade nem culpa.",source.url,date,"documentado")}}
 
@@ -1207,8 +1211,16 @@ async function processSourceItems(req,sources){
   catch(e){console.warn("Fonte concluída; conexões incompletas:",e&&e.name||"Error",String(e&&e.message||"").slice(0,180))}
   await audit(req,"source_processed","source_queue",source.id);
   results.push({id:source.id,url:extracted.original_url||source.original_url||source.url,status:"completed",title:review.title,hasClaim:Boolean(review.candidate_claim),verdict:review.fact_check&&review.fact_check.verdict||""});
- }catch(error){const message=String(error&&error.message||"Falha no processamento").slice(0,350);await updateTursoSource(source.id,"error",source.title,source.summary,message).catch(()=>{});console.error("Falha ao processar fonte",String(source.id||"").slice(0,80),message);results.push({id:source.id,url:source.original_url||source.url,status:"error",error:message})}}
- return{ok:true,processed:results.length,completed:results.filter((x)=>x.status==="completed").length,errors:results.filter((x)=>x.status==="error").length,results};
+ }catch(error){
+  const message=String(error&&error.message||"Falha no processamento").slice(0,350);
+  const isLegacyBackfill=source.status==="completed";
+  const status=isLegacyBackfill?"completed":"error";
+  const storedMessage=isLegacyBackfill?"backfill_failed: "+message:message;
+  await updateTursoSource(source.id,status,source.title,source.summary,storedMessage).catch(()=>{});
+  console.error("Falha ao processar fonte",String(source.id||"").slice(0,80),message);
+  results.push({id:source.id,url:source.original_url||source.url,status,backfillFailed:isLegacyBackfill,error:message});
+ }}
+ return{ok:true,processed:results.length,completed:results.filter((x)=>x.status==="completed"&&!x.backfillFailed).length,errors:results.filter((x)=>x.status==="error"||x.backfillFailed).length,results};
 }
 
 app.post("/api/admin/process-sources", processSourcesLimiter, requireCsrf, requireAdmin, async (req, res) => {
@@ -1246,8 +1258,21 @@ app.get("/api/cron/process-sources",async(req,res)=>{
  if(!GEMINI_API_KEY.trim())return res.status(503).json({error:"GEMINI_API_KEY não está configurada."});
  let queue;try{queue=await readTursoSourceQueue()}catch(e){console.error("Cron Turso:",e?.code||e?.name||"Error");return res.status(502).json({error:"Não foi possível consultar a fila."})}
  let discovered=[];try{discovered=await discoverDailySources(queue);if(discovered.length)queue=await readTursoSourceQueue()}catch(e){console.warn("Descoberta diária falhou:",e?.name||"Error")}
- let sources=queue.filter((x)=>x.status==="pending").slice(0,3),mode=discovered.length?"discover_and_process":"pending";
- if(!sources.length){const now=Date.now();sources=queue.filter((x)=>["processing","error"].includes(x.status)).filter((x)=>{const t=Date.parse(String(x.updated_at||""));return Number.isFinite(t)&&(x.status==="processing"?now-t>=15*60*1000:now-t>=24*60*60*1000)}).slice(0,3);mode=sources.some((x)=>x.status==="processing")?"recover_stale":"retry_errors"}
+ const pendingSources=queue.filter((x)=>x.status==="pending").slice(0,2);
+ const legacyCompleted=queue.filter((x)=>x.status==="completed"&&!String(x.summary||"").includes("FICHA_AUTO_JSON:")&&(x.url||x.original_url||x.raw_text||x.media_url)&&!/^backfill_failed:/i.test(String(x.error_message||"")))
+   .sort((a,b)=>(Date.parse(String(a.created_at||""))||0)-(Date.parse(String(b.created_at||""))||0));
+ const legacyCapacity=Math.max(0,3-pendingSources.length);
+ let sources=[...pendingSources,...legacyCompleted.slice(0,legacyCapacity)];
+ let mode=legacyCompleted.length?"backfill_legacy_sources":(discovered.length?"discover_and_process":"pending");
+ if(!sources.length){
+  const now=Date.now();
+  sources=queue.filter((x)=>["processing","error"].includes(x.status)).filter((x)=>{
+   const t=Date.parse(String(x.updated_at||""));
+   return Number.isFinite(t)&&(x.status==="processing"?now-t>=15*60*1000:now-t>=24*60*60*1000);
+  }).slice(0,3);
+  mode=sources.some((x)=>x.status==="processing")?"recover_stale":"retry_errors";
+ }
+ 
  if(!sources.length)return res.set("Cache-Control","no-store").json({ok:true,mode:"idle",discovered:discovered.length,processed:0,completed:0,errors:0});
  const result=await processSourceItems(req,sources);console.log("Cron FitaSolta:",JSON.stringify({mode,discovered:discovered.length,processed:result.processed,completed:result.completed,errors:result.errors}));
  return res.set("Cache-Control","no-store").json({ok:result.errors===0,mode,discovered:discovered.length,processed:result.processed,completed:result.completed,errors:result.errors});
