@@ -17,6 +17,7 @@
     sourceQueue: [],
     publicSources: [],
     publicSourceStats: null,
+    publicSourceMode: "all",
     uploadingDocument: false
   };
 
@@ -34,6 +35,13 @@
     auditList: $("#audit-list"),
     logoutButton: $("#logout-button"),
     sourceQueuePanel: $("#source-queue-panel"),
+    sourceIntakePanel: $("#source-intake-panel"),
+    sourceIntakeForm: $("#source-intake-form"),
+    sourceIntakeUrls: $("#source-intake-urls"),
+    sourceIntakeText: $("#source-intake-text"),
+    sourceIntakeMedia: $("#source-intake-media"),
+    sourceIntakeTitle: $("#source-intake-title"),
+    sourceIntakeStatus: $("#source-intake-status"),
     sourceQueueStatus: $("#source-queue-status"),
     sourceQueueSearch: $("#source-queue-search"),
     sourceQueueList: $("#source-queue-list"),
@@ -356,6 +364,9 @@
     if (elements.sourceQueuePanel) {
       elements.sourceQueuePanel.hidden = !state.isAdmin;
     }
+    if (elements.sourceIntakePanel) {
+      elements.sourceIntakePanel.hidden = !state.isAdmin;
+    }
 
     if (elements.adminPassword) {
       elements.adminPassword.value = "";
@@ -648,6 +659,38 @@
   }
 
 
+
+  async function handleSourceIntake(event) {
+    event.preventDefault();
+    if (!state.isAdmin || !elements.sourceIntakeForm) return;
+    const payload = {
+      urls: elements.sourceIntakeUrls ? elements.sourceIntakeUrls.value : "",
+      raw_text: elements.sourceIntakeText ? elements.sourceIntakeText.value : "",
+      media_url: elements.sourceIntakeMedia ? elements.sourceIntakeMedia.value : "",
+      title: elements.sourceIntakeTitle ? elements.sourceIntakeTitle.value : ""
+    };
+    const submit = elements.sourceIntakeForm.querySelector('button[type="submit"]');
+    setStatus(elements.sourceIntakeStatus, "Enviando material para a fila segura…");
+    setButtonLoading(submit, true, "Adicionando…");
+    try {
+      const result = await apiFetch("/admin/sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": state.csrfToken },
+        body: JSON.stringify(payload)
+      });
+      setStatus(elements.sourceIntakeStatus, result.message || "Material adicionado à fila.");
+      if (elements.sourceIntakeUrls) elements.sourceIntakeUrls.value = "";
+      if (elements.sourceIntakeText) elements.sourceIntakeText.value = "";
+      if (elements.sourceIntakeMedia) elements.sourceIntakeMedia.value = "";
+      if (elements.sourceIntakeTitle) elements.sourceIntakeTitle.value = "";
+      await loadSourceQueue();
+    } catch (error) {
+      setStatus(elements.sourceIntakeStatus, error.message || "Não foi possível adicionar o material.", true);
+    } finally {
+      setButtonLoading(submit, false);
+    }
+  }
+
   async function processSourceQueue({ retryErrors = false } = {}) {
     const triggerButton = retryErrors ? elements.retrySourceErrors : elements.processSourceQueue;
     if (!state.isAdmin || !triggerButton) return;
@@ -714,32 +757,156 @@
 
 
 
+
+  function youtubeId(value) {
+    try {
+      const u = new URL(String(value || "")), host = u.hostname.toLowerCase().replace(/^www\./, "").replace(/^m\./, "");
+      let id = "";
+      if (host === "youtu.be") id = u.pathname.split("/").filter(Boolean)[0] || "";
+      else if (host === "youtube.com" || host === "youtube-nocookie.com") {
+        const p = u.pathname.split("/").filter(Boolean);
+        if (u.pathname === "/watch" || u.pathname === "/live") id = u.searchParams.get("v") || "";
+        else if (["embed", "shorts", "live", "v"].includes(p[0])) id = p[1] || "";
+      }
+      return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : "";
+    } catch { return ""; }
+  }
+  function timestampSeconds(value) {
+    const t = String(value || "").trim();
+    if (/^\d+$/.test(t)) return Number(t);
+    const p = t.split(":").map(Number);
+    if (p.length === 3 && p.every(Number.isFinite)) return p[0] * 3600 + p[1] * 60 + p[2];
+    if (p.length === 2 && p.every(Number.isFinite)) return p[0] * 60 + p[1];
+    return 0;
+  }
+  function timestampLabel(value) {
+    const n = Math.max(0, Math.floor(Number(value) || 0));
+    return [Math.floor(n / 3600), Math.floor((n % 3600) / 60), n % 60].map((x) => String(x).padStart(2, "0")).join(":");
+  }
   function parseSourceSummary(value) {
-    const raw=String(value||"").trim(),lines=raw.split(/\r?\n/).map((x)=>x.trim()).filter(Boolean);
-    const read=(label)=>lines.find((x)=>x.toLocaleLowerCase("pt-BR").startsWith(label.toLocaleLowerCase("pt-BR")+":"))?.slice(label.length+1).trim()||"";
-    const points=lines.filter((x)=>x.toLocaleLowerCase("pt-BR").startsWith("ponto relevante:")).map((x)=>x.slice(x.indexOf(":")+1).trim()).filter(Boolean);
-    const structured=lines.some((x)=>/^(categoria|data mencionada|pessoas citadas|instituições citadas|casos e processos|andamento mencionado pela fonte|resumo da fonte|ponto relevante|limites do material|nota):/i.test(x));
-    return {category:read("Categoria")||"Outros",eventDate:read("Data mencionada"),people:read("Pessoas citadas"),organizations:read("Instituições citadas"),cases:read("Casos e processos"),legalStatus:read("Andamento mencionado pela fonte"),summary:read("Resumo da fonte")||(structured?"":raw),points,limitations:read("Limites do material"),structured};
+    const raw = String(value || "").trim(), marker = "FICHA_AUTO_JSON:", pos = raw.indexOf(marker);
+    const narrative = pos >= 0 ? raw.slice(0, pos).trim() : raw;
+    const lines = narrative.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+    const read = (label) => lines.find((x) => x.toLocaleLowerCase("pt-BR").startsWith(label.toLocaleLowerCase("pt-BR") + ":"))?.slice(label.length + 1).trim() || "";
+    let ficha = null;
+    if (pos >= 0) { try { ficha = JSON.parse(raw.slice(pos + marker.length).trim()); } catch {} }
+    return {
+      category: read("Categoria") || "Outros", eventDate: read("Data mencionada"),
+      people: read("Pessoas citadas"), organizations: read("Instituições citadas"),
+      cases: read("Casos e processos"), legalStatus: read("Andamento mencionado pela fonte"),
+      summary: read("Resumo da fonte") || narrative,
+      points: lines.filter((x) => x.toLocaleLowerCase("pt-BR").startsWith("ponto relevante:")).map((x) => x.slice(x.indexOf(":") + 1).trim()).filter(Boolean),
+      limitations: read("Limites do material"), ficha
+    };
   }
   function renderPublicSources() {
-    if(!elements.publicSourceList)return;
-    const q=(elements.search?.value||"").trim().toLocaleLowerCase("pt-BR"),cat=elements.sourceCategoryFilter?.value||"",all=Array.isArray(state.publicSources)?state.publicSources:[];
-    const visible=all.filter((s)=>{const d=parseSourceSummary(s.summary||s.description||""),c=s.category||d.category||"Outros";return(!q||[s.title,s.url,s.summary,s.description,c,d.people,d.organizations,d.cases,d.legalStatus].join(" ").toLocaleLowerCase("pt-BR").includes(q))&&(!cat||c===cat)});
-    if(elements.sourceStats){elements.sourceStats.replaceChildren();const st=state.publicSourceStats||{};for(const m of [{label:"Fontes analisadas",value:Number(st.completed??all.filter((x)=>x.status==="completed").length),caption:"resumos disponíveis",symbol:"↗"},{label:"Na fila automática",value:Number(st.pending||0),caption:"aguardando processamento",symbol:"◷"},{label:"Conexões no mural",value:Number(st.connections||0),caption:"ligações entre registros",symbol:"⌘"}]){const card=createElement("article","source-stat");card.append(createElement("span","source-stat-symbol",m.symbol),createElement("span","source-stat-label",m.label),createElement("strong","source-stat-value",m.value.toLocaleString("pt-BR")),createElement("small","",m.caption));elements.sourceStats.appendChild(card)}}
-    const last=state.publicSourceStats?.lastUpdated;
-    if(elements.boardSummary)elements.boardSummary.textContent=state.publicSourceStats?.queueAvailable===false?"Fila automática indisponível; tente sincronizar novamente.":visible.length+" fonte(s) exibida(s)"+((q||cat)?" após os filtros":"")+" · última fonte processada: "+(last?formatDate(last):"ainda não registrada")+".";
-    if(elements.sourceLiveState){elements.sourceLiveState.textContent=state.publicSourceStats?.queueAvailable===false?"Radar indisponível":"Radar ativo · atualização automática";elements.sourceLiveState.classList.toggle("live-indicator-error",state.publicSourceStats?.queueAvailable===false)}
+    if (!elements.publicSourceList) return;
+    const term = (elements.search?.value || "").trim().toLocaleLowerCase("pt-BR"), filter = elements.sourceCategoryFilter?.value || "";
+    const mode = state.publicSourceMode || "all", all = Array.isArray(state.publicSources) ? state.publicSources : [];
+    const visible = all.filter((s) => {
+      const d = parseSourceSummary(s.summary || s.description || ""), category = s.category || d.category || "Outros";
+      const ficha = d.ficha || {}, claim = ficha.claim || null;
+      const isVideo = Boolean(ficha.video_id || youtubeId(s.media_url || ficha.media_url || s.url));
+      const isImage = Boolean(ficha.image_url || (s.media_type === "image" && s.media_url));
+      const isLegal = /process|justiça|sentença|tribunal|lei|medida|governo|decisão/i.test([category, s.title, d.cases, d.legalStatus].join(" "));
+      const modeOK = mode === "all" || (mode === "claims" && claim && claim.quote) || (mode === "media" && (isVideo || isImage)) || (mode === "legal" && isLegal);
+      const searchable = [s.title,s.url,s.summary,s.description,category,d.people,d.organizations,d.cases,d.legalStatus,claim && claim.quote,claim && claim.speaker].join(" ").toLocaleLowerCase("pt-BR");
+      return Boolean(modeOK) && (!term || searchable.includes(term)) && (!filter || category === filter);
+    });
+    if (elements.sourceStats) {
+      elements.sourceStats.replaceChildren();
+      const st = state.publicSourceStats || {};
+      for (const m of [
+        {label:"Fontes processadas",value:Number(st.completed ?? all.filter((x)=>x.status==="completed").length),caption:"resumos disponíveis",symbol:"↗"},
+        {label:"Na fila automática",value:Number(st.pending || 0),caption:"aguardando processamento",symbol:"◷"},
+        {label:"Ligações no mural",value:Number(st.connections || 0),caption:"relações documentadas",symbol:"⌘"}
+      ]) {
+        const tile = createElement("article","source-stat");
+        tile.append(createElement("span","source-stat-symbol",m.symbol),createElement("span","source-stat-label",m.label),createElement("strong","source-stat-value",m.value.toLocaleString("pt-BR")),createElement("small","",m.caption));
+        elements.sourceStats.appendChild(tile);
+      }
+    }
+    const last = state.publicSourceStats?.lastUpdated;
+    if (elements.boardSummary) elements.boardSummary.textContent = state.publicSourceStats?.queueAvailable === false
+      ? "A fila automática está temporariamente indisponível; tente sincronizar novamente."
+      : visible.length + " item(ns) exibido(s)" + ((term || filter || mode !== "all") ? " com os filtros atuais" : "") + " · última atualização: " + (last ? formatDate(last) : "ainda não registrada") + ".";
+    if (elements.sourceLiveState) {
+      elements.sourceLiveState.textContent = state.publicSourceStats?.queueAvailable === false ? "Radar indisponível" : "Radar ativo · atualização automática";
+      elements.sourceLiveState.classList.toggle("live-indicator-error", state.publicSourceStats?.queueAvailable === false);
+    }
     elements.publicSourceList.replaceChildren();
-    if(!visible.length){elements.publicSourceList.appendChild(createMessage(state.publicSourceStats?.queueAvailable===false?"Não foi possível consultar a fila. Use “Sincronizar agora” para tentar novamente.":all.length?"Nenhuma fonte corresponde aos filtros.":"Ainda não há fontes processadas. O radar consulta feeds públicos diariamente e adiciona páginas legíveis à fila."));return}
-    for(const s of visible){const d=parseSourceSummary(s.summary||s.description||""),card=createElement("article","public-source-card"),top=createElement("div","source-card-top");top.append(createElement("span","source-card-category",s.category||d.category),createElement("span","source-card-status",s.status==="completed"?"Processada":"Referência"));card.append(top,createElement("h3","source-card-title",s.title||"Fonte sem título"));
-      if(d.eventDate||d.legalStatus){const box=createElement("div","source-context-grid");if(d.eventDate){const x=createElement("div","source-context-item");x.append(createElement("span","source-context-label","Data mencionada"),createElement("strong","",d.eventDate));box.appendChild(x)}if(d.legalStatus){const x=createElement("div","source-context-item");x.append(createElement("span","source-context-label","Andamento informado"),createElement("strong","",d.legalStatus));box.appendChild(x)}card.appendChild(box)}
-      if(d.summary)card.appendChild(createElement("p","source-card-summary",d.summary));else if(!d.structured)card.appendChild(createElement("p","source-card-summary","Abra o material original para consultar o conteúdo completo."));
-      const metas=[{label:"Pessoas citadas",value:d.people},{label:"Instituições",value:d.organizations},{label:"Casos e processos",value:d.cases}].filter((x)=>x.value);
-      if(metas.length){const dl=createElement("dl","source-metadata");for(const m of metas){const row=createElement("div","source-metadata-row");row.append(createElement("dt","",m.label),createElement("dd","",m.value));dl.appendChild(row)}card.appendChild(dl)}
-      if(d.points.length){card.appendChild(createElement("h4","source-points-heading","Pontos relevantes"));const ul=createElement("ul","source-key-points");for(const p of d.points)ul.appendChild(createElement("li","",p));card.appendChild(ul)}
-      if(d.limitations){const note=createElement("p","source-limitation","");note.append(createElement("strong","","Limite do material: "),document.createTextNode(d.limitations));card.appendChild(note)}
-      const foot=createElement("div","source-card-footer");foot.appendChild(createElement("span","source-card-date",s.updated_at||s.created_at?"Processada: "+formatDate(s.updated_at||s.created_at):"Data de processamento não informada"));appendSourceLink(foot,s.url,"Abrir fonte original ↗");card.appendChild(foot);elements.publicSourceList.appendChild(card)}
+    if (!visible.length) {
+      const message = state.publicSourceStats?.queueAvailable === false ? "Não foi possível consultar as fontes. Tente sincronizar novamente."
+        : all.length ? "Nenhum registro corresponde a esta busca ou filtro. Selecione “Tudo” para ver os outros materiais."
+        : "Ainda não há fontes processadas. O radar consulta feeds públicos diariamente e adiciona páginas legíveis à fila.";
+      elements.publicSourceList.appendChild(createMessage(message));
+      return;
+    }
+    for (const s of visible) {
+      const d = parseSourceSummary(s.summary || s.description || ""), ficha = d.ficha || {};
+      const claim = ficha.claim || null, fact = claim && claim.fact_check || null, sourceUrl = s.url || s.original_url || "";
+      const candidateId = String(ficha.video_id || youtubeId(s.media_url || ficha.media_url || sourceUrl) || "");
+      const videoId = /^[A-Za-z0-9_-]{11}$/.test(candidateId) ? candidateId : "";
+      const imageUrl = String(ficha.image_url || (s.media_type === "image" ? s.media_url : ""));
+      const card = createElement("article","public-source-card" + (videoId ? " has-video" : ""));
+      const top = createElement("div","source-card-top");
+      top.append(createElement("span","source-card-category",s.category || d.category || "Outros"),createElement("span","source-card-status",s.status === "completed" ? "Processada" : "Referência"));
+      card.append(top,createElement("h3","source-card-title",s.title || "Fonte sem título"));
+      if (videoId) {
+        const start = Math.max(0,Number(ficha.video_start || 0) || timestampSeconds(claim && claim.timestamp));
+        const frame = createElement("iframe","source-video-frame");
+        frame.src = "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(videoId) + (start ? "?start=" + start : "");
+        frame.title = "Vídeo original relacionado ao registro"; frame.loading = "lazy"; frame.referrerPolicy = "strict-origin-when-cross-origin";
+        frame.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
+        frame.setAttribute("allowfullscreen","");
+        card.appendChild(frame);
+        if (claim && claim.timestamp) card.appendChild(createElement("p","source-video-timestamp","Trecho identificado na transcrição: " + claim.timestamp));
+        if (!ficha.transcript_available) card.appendChild(createElement("p","source-media-note","O player está disponível, mas não encontramos transcrição pública utilizável para atribuir uma fala literal automaticamente."));
+      } else if (/^https?:\/\//i.test(imageUrl)) {
+        const link = createElement("a","source-image-link"); link.href=imageUrl; link.target="_blank"; link.rel="noopener noreferrer";
+        const image = createElement("img","source-preview-image"); image.src=imageUrl; image.alt="Imagem associada à fonte: " + (s.title || "material"); image.loading="lazy"; image.decoding="async";
+        link.appendChild(image); card.appendChild(link);
+      }
+      if (claim && claim.quote) {
+        const box = createElement("section","source-claim-box");
+        box.appendChild(createElement("p","eyebrow",claim.speaker ? "FALA ATRIBUÍDA A " + claim.speaker : "TRECHO CITADO NA FONTE"));
+        box.appendChild(createElement("blockquote","source-claim-quote","“" + claim.quote + "”"));
+        if (claim.context) box.appendChild(createElement("p","source-claim-context",claim.context));
+        if (claim.timestamp) box.appendChild(createElement("p","source-video-timestamp","Timestamp da fala: " + claim.timestamp));
+        if (fact) {
+          const labels={verdadeira:"Evidências sustentam a afirmação",falsa:"Evidências contradizem a afirmação",enganosa:"Parcialmente correta / enganosa",fora_de_contexto:"Contexto muda a interpretação",inconclusiva:"Inconclusiva",nao_verificada:"Ainda não verificada",opiniao_previsao:"Opinião, proposta ou previsão"};
+          box.appendChild(createElement("span","fact-verdict verdict-" + fact.verdict,labels[fact.verdict] || "Checagem automática"));
+          box.appendChild(createElement("p","source-fact-explanation",fact.explanation || "A checagem ainda não tem evidências suficientes."));
+          if(fact.context_note)box.appendChild(createElement("p","source-claim-context",fact.context_note));
+          const details=createElement("details","source-evidence-details");details.appendChild(createElement("summary","","Ver fontes e evidências"));
+          const grid=createElement("div","source-evidence-grid");
+          const groups=[{label:"Fontes que sustentam",items:fact.supporting_sources||[]},{label:"Fontes que contradizem ou limitam",items:fact.contradictory_sources||[]}];
+          let hasEvidence=false;
+          for(const group of groups){if(!group.items.length)continue;hasEvidence=true;const section=createElement("section","source-evidence-group");section.appendChild(createElement("h4","",group.label));for(const item of group.items.slice(0,2)){const row=createElement("p","source-evidence-link");appendSourceLink(row,item.url,item.title||"Abrir fonte consultada");section.appendChild(row)}grid.appendChild(section)}
+          if(!hasEvidence&&(fact.searched_sources||[]).length){const section=createElement("section","source-evidence-group");section.appendChild(createElement("h4","","Fontes consultadas"));for(const item of fact.searched_sources.slice(0,4)){const row=createElement("p","source-evidence-link");appendSourceLink(row,item.url,item.title||"Abrir fonte consultada");section.appendChild(row)}grid.appendChild(section)}
+          if(!hasEvidence&&!(fact.searched_sources||[]).length)grid.appendChild(createMessage("Ainda não existem fontes vinculadas suficientes. O rótulo permanece provisório."));
+          details.appendChild(grid);if(fact.verified_at)details.appendChild(createElement("p","muted","Pesquisa: "+formatDate(fact.verified_at)+". Resultado automatizado; novas evidências podem mudar a conclusão."));
+          box.appendChild(details);
+        } else box.appendChild(createElement("span","fact-verdict verdict-nao_verificada",claim.verifiable?"Ainda não verificada":"Não é uma afirmação factual verificável"));
+        card.appendChild(box);
+      }
+      if(d.eventDate||d.legalStatus){const context=createElement("div","source-context-grid");if(d.eventDate){const item=createElement("div","source-context-item");item.append(createElement("span","source-context-label","Data mencionada"),createElement("strong","",d.eventDate));context.appendChild(item)}if(d.legalStatus){const item=createElement("div","source-context-item");item.append(createElement("span","source-context-label","Andamento informado"),createElement("strong","",d.legalStatus));context.appendChild(item)}card.appendChild(context)}
+      if(d.summary)card.appendChild(createElement("p","source-card-summary",d.summary));
+      const extra=createElement("details","source-points-details");extra.appendChild(createElement("summary","","Pontos relevantes e contexto"));const inner=createElement("div","source-points-content");
+      const meta=[{label:"Pessoas citadas",value:d.people},{label:"Instituições",value:d.organizations},{label:"Casos e processos",value:d.cases}].filter((x)=>x.value);
+      if(meta.length){const dl=createElement("dl","source-metadata");for(const item of meta){const row=createElement("div","source-metadata-row");row.append(createElement("dt","",item.label),createElement("dd","",item.value));dl.appendChild(row)}inner.appendChild(dl)}
+      if(d.points.length){const list=createElement("ul","source-key-points");for(const point of d.points)list.appendChild(createElement("li","",point));inner.appendChild(list)}
+      if(d.limitations)inner.appendChild(createElement("p","source-limitation","Limites do material: "+d.limitations));
+      if(!inner.childNodes.length)inner.appendChild(createMessage("A fonte não trouxe detalhes adicionais estruturados."));
+      extra.appendChild(inner);card.appendChild(extra);
+      const footer=createElement("div","source-card-footer"),date=s.updated_at||s.created_at;
+      footer.appendChild(createElement("span","source-card-date",date?"Processada: "+formatDate(date):"Data de processamento não informada"));
+      if(sourceUrl)appendSourceLink(footer,sourceUrl,"Fonte original ↗");else footer.appendChild(createElement("span","source-card-date","Texto enviado sem URL original"));
+      if(ficha.video_source_url)appendSourceLink(footer,ficha.video_source_url,"Abrir vídeo ↗");
+      card.appendChild(footer);elements.publicSourceList.appendChild(card);
+    }
   }
+
   async function loadPublicBoard() {
     if(!elements.publicSourceList||state.loadingPublicBoard)return;state.loadingPublicBoard=true;if(elements.sourceLiveState)elements.sourceLiveState.textContent="Sincronizando fontes…";
     if(!state.publicSources.length)elements.publicSourceList.replaceChildren(createMessage("Consultando o banco e os feeds públicos…"));
@@ -1480,6 +1647,18 @@
 
     elements.loginForm?.addEventListener("submit", handleLogin);
     $("#gemini-review-form")?.addEventListener("submit", handleGeminiReview);
+    elements.sourceIntakeForm?.addEventListener("submit", handleSourceIntake);
+    document.querySelectorAll("[data-source-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.publicSourceMode = button.getAttribute("data-source-mode") || "all";
+        document.querySelectorAll("[data-source-mode]").forEach((item) => {
+          const active = item === button;
+          item.classList.toggle("is-active", active);
+          item.setAttribute("aria-pressed", String(active));
+        });
+        renderPublicSources();
+      });
+    });
     elements.logoutButton?.addEventListener("click", handleLogout);
     elements.uploadForm?.addEventListener("submit", handleDocumentUpload);
 
