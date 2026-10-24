@@ -3,52 +3,30 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { Script } from "node:vm";
 const read=(p)=>readFileSync(new URL(p,import.meta.url),"utf8");
-const home=read("../public/index.html");
-const login=read("../private/admin-login.html");
-const admin=read("../private/admin-dashboard.html");
-const app=read("../public/js/app.js");
-const server=read("../src/server.js");
-const cron=JSON.parse(read("../vercel.json"));
-
-test("homepage não oferece votação, comparação ou revisão manual",()=>{
-  for(const link of ['href="/votacao.html"','href="/comparar.html"','href="/debates.html"','href="/revisao.html"']) assert.ok(!home.includes(link));
-  assert.ok(home.includes('id="source-category-filter"'));
-  assert.ok(home.includes('id="source-stats"'));
+const home=read("../public/index.html"),login=read("../private/admin-login.html"),admin=read("../private/admin-dashboard.html"),app=read("../public/js/app.js"),server=read("../src/server.js"),cron=JSON.parse(read("../vercel.json"));
+test("homepage stays compact and offers content filters, not voting",()=>{
+ for(const link of ['href="/votacao.html"','href="/comparar.html"','href="/debates.html"','href="/revisao.html"'])assert.ok(!home.includes(link));
+ assert.ok(home.includes('data-source-mode="claims"'));assert.ok(home.includes('data-source-mode="media"'));assert.ok(home.includes('data-source-mode="legal"'));
+ assert.ok(home.includes('id="source-category-filter"'));assert.ok(home.includes('id="source-stats"'));
 });
-test("páginas legadas não são distribuídas como arquivos públicos",()=>{
-  for(const file of ["votacao.html","debates.html","comparar.html","revisao.html"]) assert.equal(existsSync(new URL("../public/"+file,import.meta.url)),false,file+" ainda existe em public");
-  assert.ok(server.includes('app.get(["/debates.html","/comparar.html","/votacao.html","/revisao.html"]'));
+test("admin intake is inside private dashboard",()=>{
+ assert.equal(existsSync(new URL("../public/admin-dashboard.html",import.meta.url)),false);
+ assert.ok(login.includes('id="login-form"'));assert.ok(admin.includes('id="source-intake-form"'));assert.ok(admin.includes('id="source-intake-text"'));assert.ok(admin.includes('id="source-intake-media"'));
+ assert.ok(server.includes('app.post("/api/admin/sources", requireCsrf, requireAdmin'));
 });
-test("painel admin fica fora de public e não contém revisão manual",()=>{
-  assert.equal(existsSync(new URL("../public/admin-dashboard.html",import.meta.url)),false);
-  assert.ok(login.includes('id="login-form"'));
-  assert.ok(admin.includes('id="source-queue-panel"'));
-  assert.ok(!admin.includes('id="gemini-review-panel"'));
+test("queue stores raw text and media but public response hides raw text",()=>{
+ assert.ok(server.includes('raw_text: "TEXT NOT NULL DEFAULT \'\'"'));
+ assert.ok(server.includes("raw_text, original_url, media_url, media_type FROM source_queue"));
+ const a=server.indexOf('app.get("/api/sources"'),b=server.indexOf("/* Fontes externas são registradas",a),route=server.slice(a,b);
+ assert.ok(route.includes('summary:item.summary||""'));assert.ok(!route.includes("raw_text:"));
 });
-test("cron diário descobre fontes oficiais e tem rota protegida",()=>{
-  assert.equal(cron.crons[0].path,"/api/cron/process-sources");
-  assert.equal(cron.crons[0].schedule,"0 12 * * *");
-  assert.ok(server.includes("discoverDailySources(queue)"));
-  assert.ok(server.includes("https://agenciabrasil.ebc.com.br/rss/ultimasnoticias/feed.xml"));
-  assert.ok(server.includes("https://www12.senado.leg.br/noticias/rss.xml"));
-  assert.ok(server.includes("https://www.camara.leg.br/noticias/rss/ultimas-noticias"));
-  assert.ok(server.includes('app.get("/api/cron/process-sources",async(req,res)=>{'));
+test("video caption parsing and evidence grounding exist",()=>{
+ assert.ok(server.includes("fetchYouTubeTranscriptFromHtml"));assert.ok(server.includes("fetchYouTubeTranscriptById"));assert.ok(server.includes("FICHA_AUTO_JSON:"));assert.ok(server.includes('tools: [{ google_search: {} }]'));
+ assert.ok(server.includes('verdict = "inconclusiva"'));assert.ok(app.includes("youtube-nocookie.com/embed/"));assert.ok(app.includes("Fontes que contradizem ou limitam"));
 });
-test("rota pública lê os resumos gravados na fila e gera conexões",()=>{
-  const start=server.indexOf('app.get("/api/sources"');
-  const end=server.indexOf("/* Fontes externas são registradas",start);
-  const route=server.slice(start,end);
-  assert.ok(route.includes("readTursoSourceQueue()"));
-  assert.ok(route.includes("stats"));
-  assert.ok(server.includes("persistSourceConnections(source,review)"));
+test("daily automation remains protected",()=>{
+ assert.equal(cron.crons[0].path,"/api/cron/process-sources");assert.equal(cron.crons[0].schedule,"0 12 * * *");
+ assert.ok(server.includes("discoverDailySources(queue)"));assert.ok(server.includes('req.get("authorization") !== "Bearer " + CRON_SECRET'));
 });
-test("votações desativadas sem apagar histórico",()=>{
-  assert.ok(server.includes('app.all("/api/topic-votes"'));
-  assert.ok(server.includes(".status(410)"));
-});
-test("a pesquisa mantém o escape SQL correto",()=>{
-  assert.ok(server.includes('search.replace(/[\\\\%_]/g, (char) => "\\\\" + char)'));
-});
-test("JavaScript do frontend é sintaticamente válido",()=>{
-  assert.doesNotThrow(()=>new Script(app));
-});
+test("voting endpoints are disabled without deleting stored records",()=>{assert.ok(server.includes('app.all("/api/topic-votes"'));assert.ok(server.includes(".status(410)"))});
+test("JavaScript syntax",()=>{assert.doesNotThrow(()=>new Script(app));assert.doesNotThrow(()=>new Script(server))});

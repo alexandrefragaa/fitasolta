@@ -56,6 +56,29 @@
       <ol id="audit-list" class="audit-list"></ol>
     </section>
 
+    <section id="source-intake-panel" class="panel admin-panel" aria-labelledby="source-intake-heading" hidden>
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">ENTRADA RÁPIDA</p>
+          <h2 id="source-intake-heading">Adicionar texto, vídeo, imagem ou links</h2>
+          <p class="muted">Cole links (um por linha), uma transcrição ou texto. Vídeos do YouTube são incorporados quando detectados; legendas públicas são usadas quando disponíveis.</p>
+        </div>
+      </div>
+      <form id="source-intake-form" class="form-stack source-intake-form">
+        <label for="source-intake-title">Título opcional</label>
+        <input id="source-intake-title" name="title" maxlength="250" placeholder="Ex.: Fala no debate sobre segurança">
+        <label for="source-intake-urls">Links de origem (um por linha)</label>
+        <textarea id="source-intake-urls" name="urls" rows="3" placeholder="https://..."></textarea>
+        <label for="source-intake-media">Link de vídeo ou imagem (opcional)</label>
+        <input id="source-intake-media" name="media_url" type="url" placeholder="https://youtu.be/... ou link de imagem">
+        <label for="source-intake-text">Texto, transcrição ou contexto (opcional)</label>
+        <textarea id="source-intake-text" name="raw_text" rows="6" maxlength="12000" placeholder="Cole o trecho literal, a transcrição ou o texto a organizar."></textarea>
+        <p class="muted">Quando colar texto, use no máximo um link de origem por envio. Se não houver link original, o registro fica identificado como texto fornecido.</p>
+        <button class="button" type="submit">Adicionar ao processamento automático</button>
+        <p id="source-intake-status" class="status" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+
     <section id="source-queue-panel" class="panel admin-panel" aria-labelledby="source-queue-heading" hidden>
       <div class="section-heading admin-queue-heading">
         <div>
@@ -79,7 +102,7 @@
   </main>
 
   <footer class="footer">
-    <span>FitaSolta · painel privado · revise antes de publicar</span>
+    <span>FitaSolta · painel privado · entrada de materiais e automação</span>
     <a href="/">Voltar ao site público</a>
   </footer>
 </body>
