@@ -815,8 +815,16 @@ app.get("/api/claims", asyncHandler(async (req, res) => {
 app.get("/api/claims/:id", asyncHandler(async (req, res) => {
   const claim = await db.prepare("SELECT " + publicClaimColumns + " FROM claims WHERE id=? AND status='published'").get(req.params.id);
   if (!claim) return res.status(404).json({ error: "Checagem publicada não encontrada." });
-  const sources = await db.prepare("SELECT id,source_type,title,url,publisher,published_date,excerpt,notes,created_at FROM claim_sources WHERE claim_id=? ORDER BY created_at").all(claim.id);
-  res.set("Cache-Control","no-store").json({ claim: { ...claim, journalism_checks: safeJsonArray(claim.journalism_checks) }, sources });
+  const [sources, relations] = await Promise.all([
+    db.prepare("SELECT id,source_type,title,url,publisher,published_date,excerpt,notes,created_at FROM claim_sources WHERE claim_id=? ORDER BY created_at").all(claim.id),
+    db.prepare(`SELECT r.relation_type,r.explanation,c.id,c.speaker,c.quote,c.verdict
+      FROM claim_relations r JOIN claims c ON c.id=r.related_claim_id
+      WHERE r.claim_id=? AND c.status='published' ORDER BY r.created_at DESC LIMIT 100`).all(claim.id)
+  ]);
+  res.set("Cache-Control","no-store").json({
+    claim: { ...claim, journalism_checks: safeJsonArray(claim.journalism_checks) },
+    sources, relations
+  });
 }));
 
 app.get("/api/admin/claims", requireAdmin, asyncHandler(async (req, res) => {
