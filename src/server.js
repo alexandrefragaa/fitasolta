@@ -741,6 +741,7 @@ app.get("/api/admin/audit", requireAdmin, asyncHandler(async (req, res) => {
   }
 }));
 
+/* checked insertion point */
 app.use(express.static(publicDir, {
   index: "index.html",
   dotfiles: "deny",
