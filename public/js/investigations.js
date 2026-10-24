@@ -183,6 +183,7 @@
               detailRoot.append(el("p", clip.title + " · " + clip.start_timestamp + "–" + clip.end_timestamp));
               addLink(detailRoot, videoAt(clip.video_url, clip.start_seconds || 0), "Abrir vídeo no início do trecho");
             }
+          }
         } catch (error) {
           detailRoot.replaceChildren(el("p", error.message, "status error"));
         }
