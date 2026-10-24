@@ -880,11 +880,34 @@
           if(fact.context_note)box.appendChild(createElement("p","source-claim-context",fact.context_note));
           const details=createElement("details","source-evidence-details");details.appendChild(createElement("summary","","Ver fontes e evidências"));
           const grid=createElement("div","source-evidence-grid");
-          const groups=[{label:"Fontes que sustentam",items:fact.supporting_sources||[]},{label:"Fontes que contradizem ou limitam",items:fact.contradictory_sources||[]}];
-          let hasEvidence=false;
-          for(const group of groups){if(!group.items.length)continue;hasEvidence=true;const section=createElement("section","source-evidence-group");section.appendChild(createElement("h4","",group.label));for(const item of group.items.slice(0,2)){const row=createElement("p","source-evidence-link");appendSourceLink(row,item.url,item.title||"Abrir fonte consultada");section.appendChild(row)}grid.appendChild(section)}
-          if(!hasEvidence&&(fact.searched_sources||[]).length){const section=createElement("section","source-evidence-group");section.appendChild(createElement("h4","","Fontes consultadas"));for(const item of fact.searched_sources.slice(0,4)){const row=createElement("p","source-evidence-link");appendSourceLink(row,item.url,item.title||"Abrir fonte consultada");section.appendChild(row)}grid.appendChild(section)}
-          if(!hasEvidence&&!(fact.searched_sources||[]).length)grid.appendChild(createMessage("Ainda não existem fontes vinculadas suficientes. O rótulo permanece provisório."));
+          const groups=[
+            {label:"Fontes que sustentam",items:fact.supporting_sources||[],empty:"Nenhuma fonte de apoio foi vinculada com confiança suficiente."},
+            {label:"Fontes que contradizem ou limitam",items:fact.contradictory_sources||[],empty:"A pesquisa não conseguiu vincular uma fonte que contradiga ou limite diretamente esta afirmação. Isso não prova que ela não exista."}
+          ];
+          const shown=new Set();
+          for(const group of groups){
+            const section=createElement("section","source-evidence-group");
+            section.appendChild(createElement("h4","",group.label));
+            if(!group.items.length) section.appendChild(createElement("p","source-evidence-link",group.empty));
+            for(const item of group.items.slice(0,2)){
+              const row=createElement("p","source-evidence-link");
+              appendSourceLink(row,item.url,item.title||"Abrir fonte consultada");
+              section.appendChild(row);
+              if(item.url)shown.add(item.url);
+            }
+            grid.appendChild(section);
+          }
+          const otherSources=(fact.searched_sources||[]).filter((item)=>item.url&&!shown.has(item.url)).slice(0,4);
+          if(otherSources.length){
+            const section=createElement("section","source-evidence-group");
+            section.appendChild(createElement("h4","","Outras fontes encontradas (sem posição atribuída)"));
+            for(const item of otherSources){
+              const row=createElement("p","source-evidence-link");
+              appendSourceLink(row,item.url,item.title||"Abrir fonte consultada");
+              section.appendChild(row);
+            }
+            grid.appendChild(section);
+          }
           details.appendChild(grid);if(fact.verified_at)details.appendChild(createElement("p","muted","Pesquisa: "+formatDate(fact.verified_at)+". Resultado automatizado; novas evidências podem mudar a conclusão."));
           box.appendChild(details);
         } else box.appendChild(createElement("span","fact-verdict verdict-nao_verificada",claim.verifiable?"Ainda não verificada":"Não é uma afirmação factual verificável"));

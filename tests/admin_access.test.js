@@ -22,7 +22,7 @@ test("queue stores raw text and media but public response hides raw text",()=>{
 });
 test("video caption parsing and evidence grounding exist",()=>{
  assert.ok(server.includes("fetchYouTubeTranscriptFromHtml"));assert.ok(server.includes("fetchYouTubeTranscriptById"));assert.ok(server.includes("FICHA_AUTO_JSON:"));assert.ok(server.includes('tools: [{ google_search: {} }]'));
- assert.ok(server.includes('verdict = "inconclusiva"'));assert.ok(app.includes("youtube-nocookie.com/embed/"));assert.ok(app.includes("Fontes que contradizem ou limitam"));
+ assert.ok(server.includes('verdict = "inconclusiva"'));assert.ok(app.includes("youtube-nocookie.com/embed/"));assert.ok(app.includes("Fontes que contradizem ou limitam"));assert.ok(app.includes("Nenhuma fonte de apoio foi vinculada"));assert.ok(app.includes("não conseguiu vincular uma fonte que contradiga"));
 });
 test("daily automation remains protected",()=>{
  assert.equal(cron.crons[0].path,"/api/cron/process-sources");assert.equal(cron.crons[0].schedule,"0 12 * * *");

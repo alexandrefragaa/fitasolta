@@ -1203,7 +1203,7 @@ async function processSourceItems(req,sources){
     supporting_evidence:"",contradictory_evidence:"",context_note:"",supporting_sources:[],contradictory_sources:[],searched_sources:[],verified_at:new Date().toISOString(),method:"checagem pendente"};
   }
   await updateTursoSource(source.id,"completed",review.title,formatStructuredSourceSummary(review),review.source_limitations||"");
-  try{await persistSourceConnections(Object.assign({},source,{original_url:extracted.original_url||source.original_url||"",url:extracted.original_url||source.original_url||source.url||""}),review)}
+  try{await persistSourceConnections(Object.assign({},source,{original_url:extracted.original_url||source.original_url||"",url:extracted.original_url||source.original_url||(source.media_type==="text"?"":source.url||"")}),review)}
   catch(e){console.warn("Fonte concluída; conexões incompletas:",e&&e.name||"Error",String(e&&e.message||"").slice(0,180))}
   await audit(req,"source_processed","source_queue",source.id);
   results.push({id:source.id,url:extracted.original_url||source.original_url||source.url,status:"completed",title:review.title,hasClaim:Boolean(review.candidate_claim),verdict:review.fact_check&&review.fact_check.verdict||""});
