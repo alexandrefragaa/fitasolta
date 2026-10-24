@@ -212,16 +212,54 @@
    if(!data.claims.length){root.append(makeText("p","Ainda não há checagens publicadas.","status-note"));return;}
    for(const claim of data.claims) {
     const card=makeText("article","");card.className="review-card";
-    card.append(makeText("h3",claim.speaker+" · "+claim.verdict));
+    const verdictLabels={
+     verdadeira:"Verdadeira",falsa:"Falsa",enganosa:"Enganosa / imprecisa",
+     fora_de_contexto:"Fora de contexto",inconclusiva:"Inconclusiva",
+     opiniao_previsao:"Opinião / previsão",nao_verificada:"Não verificada"
+    };
+    card.append(makeText("h3",claim.speaker+" · "+(verdictLabels[claim.verdict]||"Não verificada")));
     card.append(makeText("p","“"+claim.quote+"”"));
     card.append(makeText("p",claim.context,"status-note"));
     if(claim.explanation) card.append(makeText("p",claim.explanation));
     const link=document.createElement("a");link.href=claim.video_url;link.target="_blank";link.rel="noopener noreferrer";
     link.textContent=claim.source_kind==="publicacao_x"?"Abrir publicação original no X":"Abrir vídeo original";
-    card.append(link);root.append(card);
+    card.append(link);
+    const sourcesButton=actionButton("sources",claim.id,"Ver fontes registradas");
+    sourcesButton.classList.remove("button-outline");card.append(sourcesButton);
+    root.append(card);
    }
   } catch(error) {root.replaceChildren(makeText("p","Não foi possível carregar checagens publicadas: "+error.message,"status-note"));}
  }
+
+ byId("published-claims").addEventListener("click",async(event)=>{
+  const button=event.target.closest('button[data-claim-action="sources"]');
+  if(!button)return;
+  button.disabled=true;
+  const card=button.closest("article");
+  const existing=card.querySelector("[data-public-sources]");
+  if(existing){existing.remove();button.textContent="Ver fontes registradas";button.disabled=false;return;}
+  try {
+   const detail=await fetchJson("/api/claims/"+encodeURIComponent(button.dataset.claimId),{cache:"no-store"});
+   const box=makeText("div","");box.dataset.publicSources="true";
+   box.append(makeText("h4","Fontes e referências"));
+   const sources=detail.sources||[];
+   if(!sources.length) box.append(makeText("p","Nenhuma fonte documental foi registrada para esta ficha.","status-note"));
+   for(const source of sources){
+    const item=makeText("div","");
+    const title=source.title||source.publisher||source.url;
+    const sourceLink=document.createElement("a");sourceLink.href=source.url;sourceLink.target="_blank";sourceLink.rel="noopener noreferrer";
+    sourceLink.textContent=title;item.append(sourceLink);
+    item.append(makeText("p",source.source_type+" · "+(source.notes||source.excerpt||"Link de referência"),"status-note"));
+    box.append(item);
+   }
+   if(detail.claim.supporting_evidence)box.append(makeText("p","Evidência favorável: "+detail.claim.supporting_evidence));
+   if(detail.claim.contradictory_evidence)box.append(makeText("p","Limitações/evidências contrárias: "+detail.claim.contradictory_evidence));
+   card.append(box);button.textContent="Ocultar fontes";
+  } catch(error) {
+   statusNode().textContent="Não foi possível carregar as fontes da checagem: "+error.message;
+  } finally {button.disabled=false;}
+ });
+
  async function loadAdminQueue() {
   const panel=byId("admin-claims"),root=byId("admin-queue");
   try {
