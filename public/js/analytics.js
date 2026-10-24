@@ -24,7 +24,7 @@
   }
   function currentResource() {
     const pathname=location.pathname==="/index.html"?"/":location.pathname;
-    return publicPaths.has(pathname)?pathname:"/";
+    return publicPaths.has(pathname)?pathname:"";
   }
   function reportCurrentClaim() {
     const match=/^#claim:??([a-f0-9-]{20,80})$/i.exec(location.hash);
@@ -38,7 +38,7 @@
     try { localStorage.setItem(CONSENT_KEY,choice); } catch {}
     const notice=document.getElementById("cookie-notice")||document.getElementById("analytics-consent");
     if(notice)notice.hidden=true;
-    if(choice==="yes")send("page_view",currentResource());
+    if(choice==="yes"&&currentResource())send("page_view",currentResource());
   }
   function makeNotice() {
     let notice=document.getElementById("cookie-notice");
@@ -83,8 +83,8 @@
     }
     const term=document.getElementById("filter-search");
     if(term)term.addEventListener("change",()=>{if(localStorageSafe())send("search","/debates.html");});
-    if(localStorageSafe())reportCurrentClaim();
-    window.addEventListener("hashchange",()=>{if(localStorageSafe())reportCurrentClaim();});
+    if(localStorageSafe()&&currentResource())reportCurrentClaim();
+    window.addEventListener("hashchange",()=>{if(localStorageSafe()&&currentResource())reportCurrentClaim();});
   }
   function localStorageSafe(){try{return localStorage.getItem(CONSENT_KEY)==="yes"||localStorage.getItem("tc-analytics-consent")==="yes";}catch{return false;}}
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init);else init();
