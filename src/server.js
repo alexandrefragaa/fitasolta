@@ -25,8 +25,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 const publicDir = path.join(rootDir, "public");
-const dataDir = path.join(rootDir, "data");
-const uploadDir = path.join(rootDir, "private_uploads");
+
+// Vercel Functions têm filesystem de projeto somente leitura. Use /tmp
+// para evitar que a inicialização falhe ao tentar criar arquivos em /var/task.
+// ATENÇÃO: /tmp é efêmero; os dados SQLite não são persistentes entre instâncias.
+const runtimeWritableDir = process.env.VERCEL
+  ? path.join("/tmp", "fitasolta")
+  : rootDir;
+const dataDir = path.join(runtimeWritableDir, "data");
+const uploadDir = path.join(runtimeWritableDir, "private_uploads");
 
 fs.mkdirSync(dataDir, { recursive: true });
 fs.mkdirSync(uploadDir, { recursive: true, mode: 0o700 });
