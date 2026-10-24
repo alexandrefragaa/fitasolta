@@ -96,3 +96,8 @@ A lista é exibida somente após login administrativo, pode ser filtrada e não 
 - Adicione verificação de malware, limites de upload e pipeline de PDF/OCR isolado.
 - Faça revisão de segurança e LGPD.
 - Verifique cada afirmação, relação e conclusão jurídica contra fontes primárias, registrando data, URL, trecho e estado processual.
+
+
+## Modelo investigativo estruturado
+
+O modelo proposto para organizar casos, envolvidos, vítimas, alegações, fatos/fakes, fontes, relações documentadas e andamentos está em [`docs/modelo-investigativo-estruturado.md`](docs/modelo-investigativo-estruturado.md). Ele define estados editoriais, papéis no caso, linha do tempo, proteção de pessoas vulneráveis, controles de revisão e critérios de aceite. A documentação não significa que todos esses fluxos já estejam implementados na aplicação; a persistência e as telas autenticadas ainda precisam ser ligadas ao backend remoto.
