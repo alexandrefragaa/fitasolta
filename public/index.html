@@ -39,8 +39,7 @@
       <a href="/debates.html">Afirmações</a><a href="/investigacoes.html">Conexões</a>
       <a href="/comparar.html">Comparar</a>
       <a href="/votacao.html">Temas ao vivo</a>
-      <a href="/revisao.html">Revisão editorial</a>
-      <button id="admin-open" class="button button-outline" type="button" aria-haspopup="dialog" aria-controls="admin-dialog">Área administrativa</button>
+      
     </nav>
   </header>
 
@@ -208,154 +207,6 @@
     </span>
   </footer>
 
-  <!-- Diálogo administrativo -->
-  <dialog
-    id="admin-dialog"
-    class="dialog"
-    aria-labelledby="admin-title"
-    aria-describedby="admin-description"
-  >
-    <form method="dialog" class="dialog-close-row">
-      <button
-        class="icon-button"
-        type="submit"
-        value="cancel"
-        aria-label="Fechar janela"
-      >
-        ×
-      </button>
-    </form>
-
-    <p class="eyebrow">ACESSO RESTRITO</p>
-
-    <h2 id="admin-title">Área administrativa</h2>
-
-    <p id="admin-description" class="muted">
-      A senha é validada no servidor. Ela não deve ser
-      armazenada no JavaScript do navegador.
-    </p>
-
-    <form id="login-form" class="form-stack">
-      <label for="admin-password">
-        Senha administrativa
-      </label>
-
-      <input
-        id="admin-password"
-        name="password"
-        type="password"
-        autocomplete="current-password"
-        minlength="12"
-        maxlength="200"
-        aria-describedby="login-status"
-        required
-      >
-
-      <button
-        class="button"
-        type="submit"
-      >
-        Entrar
-      </button>
-    </form>
-
-    <p
-      id="login-status"
-      class="status"
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
-    ></p>
-
-    <section
-      id="audit-panel"
-      aria-labelledby="audit-heading"
-      hidden
-    >
-      <div class="section-heading">
-        <h3 id="audit-heading">Eventos de auditoria</h3>
-
-        <button
-          id="logout-button"
-          class="button button-outline"
-          type="button"
-        >
-          Sair
-        </button>
-      </div>
-
-      <ol id="audit-list" class="audit-list"></ol>
-    </section>
-
-    <section
-      id="source-queue-panel"
-      aria-labelledby="source-queue-heading"
-      hidden
-    >
-      <div class="section-heading">
-        <div>
-          <h3 id="source-queue-heading">Fontes coletadas (Turso)</h3>
-          <p class="muted">Lista somente para consulta. O título e o resumo são metadados de pesquisa; confira a fonte original antes de concluir algo.</p>
-        </div>
-        <button
-          id="refresh-source-queue"
-          class="button button-outline"
-          type="button"
-        >
-          Atualizar fontes
-        </button>
-        <button
-          id="process-source-queue"
-          class="button"
-          type="button"
-        >
-          Processar próximas 3 fontes
-        </button>
-        <button
-          id="retry-source-errors"
-          class="button button-outline"
-          type="button"
-        >
-          Tentar novamente fontes com erro
-        </button>
-      </div>
-
-      <p
-        id="source-queue-status"
-        class="status"
-        role="status"
-        aria-live="polite"
-      ></p>
-
-      <label class="sr-only" for="source-queue-search">Filtrar fontes</label>
-      <input
-        id="source-queue-search"
-        type="search"
-        placeholder="Filtrar por título, URL ou resumo…"
-        autocomplete="off"
-      >
-
-      <ul id="source-queue-list" class="source-queue-list"></ul>
-
-      <section class="panel" aria-labelledby="gemini-review-heading">
-        <h3 id="gemini-review-heading">Revisão de evidências com Gemini</h3>
-        <p class="muted">A IA compara a afirmação com o trecho de fonte que você informar. Ela não abre a URL automaticamente e não substitui conferência humana.</p>
-        <form id="gemini-review-form" class="form-stack">
-          <label for="gemini-claim">Afirmação a revisar</label>
-          <textarea id="gemini-claim" rows="3" maxlength="3000" required placeholder="Ex.: A decisão anulou a condenação por determinado fundamento…"></textarea>
-          <label for="gemini-context">Contexto do caso (opcional)</label><textarea id="gemini-context" rows="2" maxlength="3000"></textarea>
-          <label for="gemini-source-title">Título da fonte</label><input id="gemini-source-title" maxlength="300">
-          <label for="gemini-source-url">URL da fonte</label><input id="gemini-source-url" type="url" maxlength="2000" placeholder="https://…">
-          <label for="gemini-source-excerpt">Trecho relevante da fonte</label><textarea id="gemini-source-excerpt" rows="6" maxlength="12000" required placeholder="Cole aqui o trecho do documento, decisão ou reportagem que sustenta a afirmação."></textarea>
-          <button id="gemini-review-submit" class="button" type="submit">Analisar evidências</button>
-        </form>
-        <div id="gemini-review-result" class="status" role="status" aria-live="polite"></div>
-      </section>
-
-    </section>
-
-  </dialog>
-
   <!-- Aviso sobre o cookie essencial -->
   <div
     id="cookie-notice"
@@ -365,9 +216,7 @@
     hidden
   >
     <p>
-      Este site usa um cookie essencial de sessão para a área
-      administrativa. O contador incluído é local à aba e não
-      envia dados de uso a terceiros.
+      Este site usa um cookie essencial para manter a sessão segura. O aviso de privacidade explica quais informações são armazenadas.
     </p>
 
     <button
