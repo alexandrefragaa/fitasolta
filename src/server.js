@@ -1358,7 +1358,8 @@ app.post("/api/admin/cases/:id/claims", requireCsrf, requireAdmin, asyncHandler(
   const claimId = cleanString(req.body?.claim_id,{min:1,max:100,required:true});
   const claim = claimId ? await db.prepare("SELECT id,status FROM claims WHERE id=?").get(claimId) : null;
   if (!claim) return res.status(404).json({ error:"Checagem não encontrada." });
-  await db.prepare("UPDATE claims SET case_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status NOT IN ('approved','published')").run(caseRow.id,claim.id);
+  if (["approved","published"].includes(claim.status)) return res.status(409).json({ error:"Uma checagem aprovada/publicada não pode ser vinculada ou movida sem nova revisão editorial." });
+  await db.prepare("UPDATE claims SET case_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(caseRow.id,claim.id);
   const current = await db.prepare("SELECT case_id,status FROM claims WHERE id=?").get(claim.id);
   if (!current || current.case_id !== caseRow.id) return res.status(409).json({ error:"Uma checagem aprovada/publicada não pode ser movida sem reabrir a revisão." });
   await audit(req,"case_claim_linked","claim",claim.id);
