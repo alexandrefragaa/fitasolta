@@ -115,3 +115,14 @@ Após alterar variáveis, faça um novo deploy. Antes de promover para produçã
 - Antes de uso público sensível, configure backups e teste de restauração, revise privacidade/LGPD, autorização por função e segurança de SSRF.
 - Não presume culpa a partir de uma investigação, denúncia, prisão, conexão entre entidades ou fala fora de contexto.
 - Os materiais políticos fornecidos são fontes de origem para checagem, não vereditos prontos. Alegações sem citação literal, timestamp/contexto e fontes confiáveis devem permanecer não verificadas.
+
+
+## Comparação, revisão e participação pública
+
+- As fichas públicas mostram estado da evidência (documentada, alegação, hipótese, não verificado ou em disputa), sem expor automaticamente o veredito editorial interno.
+- A tela **Comparar** permite selecionar dois registros publicados, consultar fontes favoráveis e contrárias, abrir vídeo no minuto indicado e ver uma linha do tempo. O sistema não calcula vencedor nem faz ranking de candidatos.
+- **Temas ao vivo** registra prioridade de assunto, não intenção de voto nem pesquisa eleitoral. A região é informada voluntariamente e as tabelas regionais são agregadas.
+- O Gemini pode sugerir lacunas, divergências e fontes primárias ausentes. A sugestão não é prova e nunca publica sozinha; a publicação exige aprovação humana.
+- Correções enviadas pelo público ficam pendentes até revisão. O histórico de alterações fica ligado à ficha.
+- Analytics é opcional, depende de consentimento e guarda apenas contagens agregadas, sem IP, identidade ou texto pesquisado.
+
