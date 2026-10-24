@@ -1076,11 +1076,6 @@
 
     elements.search?.addEventListener("input", applySearch);
 
-    elements.cookieDismiss?.addEventListener(
-      "click",
-      dismissCookieNotice
-    );
-
     elements.adminDialog?.addEventListener("close", () => {
       if (elements.adminPassword) {
         elements.adminPassword.value = "";
@@ -1090,7 +1085,6 @@
 
   async function initialize() {
     attachEvents();
-    initializeCookieNotice();
     await refreshCsrfToken().catch(() => {
       setStatus(
         elements.loginStatus,
