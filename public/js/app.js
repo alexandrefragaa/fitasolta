@@ -27,6 +27,7 @@
     loginForm: $("#login-form"),
     adminPassword: $("#admin-password"),
     loginStatus: $("#login-status"),
+    adminLoginPanel: $("#admin-login-panel"),
     auditPanel: $("#audit-panel"),
     auditList: $("#audit-list"),
     logoutButton: $("#logout-button"),
@@ -37,6 +38,7 @@
     refreshSourceQueue: $("#refresh-source-queue"),
     processSourceQueue: $("#process-source-queue"),
     retrySourceErrors: $("#retry-source-errors"),
+    geminiReviewPanel: $("#gemini-review-panel"),
 
     search: $("#search"),
     searchButton: $("#search-button"),
@@ -334,6 +336,12 @@
     if (elements.loginForm) {
       elements.loginForm.hidden = state.isAdmin;
     }
+    if (elements.adminLoginPanel) {
+      elements.adminLoginPanel.hidden = state.isAdmin;
+    }
+    if (elements.geminiReviewPanel) {
+      elements.geminiReviewPanel.hidden = !state.isAdmin;
+    }
 
     if (elements.auditPanel) {
       elements.auditPanel.hidden = !state.isAdmin;
@@ -452,12 +460,16 @@
       // O servidor regenera a sessão e fornece um novo token CSRF.
       state.csrfToken = data.csrfToken;
 
+      // /admin é servido de forma diferente pelo backend conforme a sessão.
+      // Recarregar faz o servidor enviar o painel privado após autenticar.
+      if (window.location.pathname === "/admin") {
+        window.location.replace("/admin");
+        return;
+      }
+
       await setAdminState(true);
 
-      setStatus(
-        elements.loginStatus,
-        "Login realizado. Área administrativa habilitada."
-      );
+      setStatus(elements.loginStatus, "Login realizado.");
     } catch (error) {
       setStatus(
         elements.loginStatus,
@@ -483,6 +495,12 @@
       state.csrfToken = "";
 
       await setAdminState(false);
+
+      if (window.location.pathname === "/admin") {
+        // Após sair, o servidor entrega somente a tela de autenticação.
+        window.location.replace("/admin");
+        return;
+      }
 
       await refreshCsrfToken();
 
@@ -1505,21 +1523,17 @@
       );
     });
 
-    await Promise.allSettled([
-      loadPublicBoard(),
-      checkHealth(),
-      checkAdminSession()
-    ]);
+    if (window.location.pathname === "/admin") {
+      // A página privada não carrega o mural público; só verifica a sessão.
+      await checkAdminSession();
+    } else {
+      // A área pública não faz chamadas de autenticação nem carrega controles admin.
+      await Promise.allSettled([loadPublicBoard(), checkHealth()]);
+    }
 
     // O token pode ter falhado na primeira tentativa se a API
     // ainda não estivesse pronta. Não presumimos autenticação.
-    if (state.isAdmin) {
-      updateUploadAccess();
-    }
-
-    if (window.location.hash === "#admin-open" && !state.isAdmin) {
-      elements.adminOpen?.click();
-    }
+    if (state.isAdmin) updateUploadAccess();
   }
 
   if (document.readyState === "loading") {
