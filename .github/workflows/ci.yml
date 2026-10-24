@@ -25,7 +25,7 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Check server syntax
         run: node --check src/server.js
@@ -34,6 +34,9 @@ jobs:
         run: |
           node --check public/js/app.js
           node --check src/js/app.js
+
+      - name: Check debate page script
+        run: node --check public/js/debates.js
 
       - name: Run tests
         run: npm test
