@@ -131,6 +131,21 @@ async function initializeDatabase() {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS claims (
+      id TEXT PRIMARY KEY, speaker TEXT NOT NULL, video_url TEXT NOT NULL, timestamp TEXT NOT NULL DEFAULT '',
+      quote TEXT NOT NULL, context TEXT NOT NULL DEFAULT '', claim_type TEXT NOT NULL DEFAULT 'nao_determinado',
+      verdict TEXT NOT NULL DEFAULT 'nao_verificada', explanation TEXT NOT NULL DEFAULT '',
+      journalism_checks TEXT NOT NULL DEFAULT '[]', primary_sources TEXT NOT NULL DEFAULT '[]',
+      supporting_evidence TEXT NOT NULL DEFAULT '', contradictory_evidence TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft', created_by TEXT NOT NULL DEFAULT 'admin',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, published_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS claim_sources (id TEXT PRIMARY KEY, claim_id TEXT NOT NULL, source_type TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', url TEXT NOT NULL, publisher TEXT NOT NULL DEFAULT '', published_date TEXT NOT NULL DEFAULT '', excerpt TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (claim_id) REFERENCES claims(id) ON DELETE CASCADE);
+    CREATE TABLE IF NOT EXISTS claim_reviews (id TEXT PRIMARY KEY, claim_id TEXT NOT NULL, model TEXT NOT NULL DEFAULT 'manual', input_snapshot TEXT NOT NULL, output_json TEXT NOT NULL, reviewer_decision TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, reviewed_at TEXT, FOREIGN KEY (claim_id) REFERENCES claims(id) ON DELETE CASCADE);
+    CREATE TABLE IF NOT EXISTS claim_relations (id TEXT PRIMARY KEY, claim_id TEXT NOT NULL, related_claim_id TEXT NOT NULL, relation_type TEXT NOT NULL DEFAULT 'related', explanation TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (claim_id) REFERENCES claims(id) ON DELETE CASCADE, FOREIGN KEY (related_claim_id) REFERENCES claims(id) ON DELETE CASCADE, CHECK (claim_id <> related_claim_id));
+    CREATE INDEX IF NOT EXISTS idx_claims_status ON claims(status, published_at);
+    CREATE INDEX IF NOT EXISTS idx_claim_sources_claim ON claim_sources(claim_id);
+    CREATE INDEX IF NOT EXISTS idx_claim_reviews_claim ON claim_reviews(claim_id);
     CREATE TABLE IF NOT EXISTS sessions (
       sid TEXT PRIMARY KEY,
       sess TEXT NOT NULL,
@@ -274,6 +289,7 @@ app.use(helmet({
       imgSrc: ["'self'", "data:"],
       fontSrc: ["'self'", "data:"],
       connectSrc: ["'self'"],
+      frameSrc: ["'self'", "https://www.youtube-nocookie.com", "https://www.youtube.com"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
