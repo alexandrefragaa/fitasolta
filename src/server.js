@@ -742,6 +742,92 @@ app.get("/api/admin/audit", requireAdmin, asyncHandler(async (req, res) => {
 }));
 
 /* checked insertion point */
+
+app.get("/api/claims", asyncHandler(async (req, res) => {
+  const adminAll = req.session?.isAdmin === true && req.query.status === "all";
+  const query = adminAll ? "SELECT * FROM claims ORDER BY updated_at DESC LIMIT 500" : "SELECT id,speaker,video_url,timestamp,quote,context,claim_type,verdict,explanation,status,created_at,published_at FROM claims WHERE status='published' ORDER BY published_at DESC LIMIT 500";
+  const claims = await db.prepare(query).all();
+  res.set("Cache-Control", "no-store").json({ claims });
+}));
+app.post("/api/admin/claims", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
+  const b = req.body || {};
+  const speaker = cleanString(b.speaker, { min: 1, max: 120, required: true });
+  const videoUrl = normalizeHttpUrl(b.video_url || "");
+  const timestamp = cleanString(b.timestamp || "", { max: 20 });
+  const quote = cleanString(b.quote, { min: 1, max: 3000, required: true });
+  const context = cleanString(b.context || "", { max: 3000 });
+  const claimType = cleanString(b.claim_type || "nao_determinado", { min: 1, max: 80, required: true });
+  const explanation = cleanString(b.explanation || "", { max: 4000 });
+  const supporting = cleanString(b.supporting_evidence || "", { max: 3000 });
+  const contradictory = cleanString(b.contradictory_evidence || "", { max: 3000 });
+  if ([speaker,videoUrl,quote,context,claimType,explanation,supporting,contradictory].some(x => x === null) || timestamp === null) return res.status(400).json({error:"Há campos inválidos ou acima do limite permitido."});
+  let source;
+  try { source = new URL(videoUrl); } catch { return res.status(400).json({error:"URL original inválida."}); }
+  const host = source.hostname.toLowerCase();
+  const isX = host.endsWith("x.com") || host.endsWith("twitter.com");
+  if (timestamp && !/^([0-9]{1,2}:)?[0-5][0-9]:[0-5][0-9]$/.test(timestamp)) return res.status(400).json({error:"Timestamp deve ser MM:SS ou HH:MM:SS."});
+  if (!timestamp && !isX) return res.status(400).json({error:"Informe o timestamp do vídeo; para X ele pode ficar vazio."});
+  const urls = (input) => String(input || "").split("\n").map(x=>x.trim()).filter(Boolean);
+  const journalism = urls(b.journalism_checks);
+  const primary = urls(b.primary_sources);
+  for (const url of [...journalism,...primary]) if (!normalizeHttpUrl(url)) return res.status(400).json({error:"Uma das URLs de fonte é inválida."});
+  const verdictText = String(b.verdict || "").toLowerCase();
+  const verdict = verdictText.includes("verdadeira") ? "verdadeira" : verdictText.includes("falsa") ? "falsa" : verdictText.includes("enganosa") || verdictText.includes("imprecisa") ? "enganosa" : verdictText.includes("contexto") ? "fora_de_contexto" : verdictText.includes("inconclusiva") ? "inconclusiva" : verdictText.includes("opinião") || verdictText.includes("previsão") ? "opiniao_previsao" : "nao_verificada";
+  const id = crypto.randomUUID();
+  await db.prepare("INSERT INTO claims (id,speaker,video_url,timestamp,quote,context,claim_type,verdict,explanation,journalism_checks,primary_sources,supporting_evidence,contradictory_evidence,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'draft')").run(id,speaker,videoUrl,timestamp || "",quote,context,claimType,verdict,explanation,JSON.stringify(journalism),JSON.stringify(primary),supporting,contradictory);
+  for (const url of journalism) await db.prepare("INSERT INTO claim_sources (id,claim_id,source_type,url) VALUES (?,?,?,?)").run(crypto.randomUUID(),id,"jornalistica",url);
+  for (const url of primary) await db.prepare("INSERT INTO claim_sources (id,claim_id,source_type,url) VALUES (?,?,?,?)").run(crypto.randomUUID(),id,"primaria",url);
+  await audit(req,"claim_created","claim",id);
+  res.status(201).set("Cache-Control","no-store").json({id,status:"draft",message:"Rascunho salvo; ainda não publicado."});
+}));
+app.get("/api/admin/claims/:id", requireAdmin, asyncHandler(async (req,res) => {
+  const claim = await db.prepare("SELECT * FROM claims WHERE id=?").get(req.params.id);
+  if (!claim) return res.status(404).json({error:"Ficha não encontrada."});
+  const sources = await db.prepare("SELECT * FROM claim_sources WHERE claim_id=? ORDER BY created_at").all(claim.id);
+  const reviews = await db.prepare("SELECT id,model,output_json,reviewer_decision,created_at,reviewed_at FROM claim_reviews WHERE claim_id=? ORDER BY created_at DESC").all(claim.id);
+  const relations = await db.prepare("SELECT r.*,c.speaker,c.quote AS related_quote FROM claim_relations r JOIN claims c ON c.id=r.related_claim_id WHERE r.claim_id=?").all(claim.id);
+  res.set("Cache-Control","no-store").json({claim,sources,reviews,relations});
+}));
+app.post("/api/admin/claims/:id/reviews", requireCsrf, requireAdmin, asyncHandler(async (req,res) => {
+  const claim = await db.prepare("SELECT * FROM claims WHERE id=?").get(req.params.id);
+  if (!claim) return res.status(404).json({error:"Ficha não encontrada."});
+  const output = req.body?.output;
+  if (!output || typeof output !== "object" || Array.isArray(output)) return res.status(400).json({error:"Informe a revisão estruturada."});
+  const id = crypto.randomUUID();
+  const sources = await db.prepare("SELECT source_type,url,title,excerpt FROM claim_sources WHERE claim_id=?").all(claim.id);
+  await db.prepare("INSERT INTO claim_reviews (id,claim_id,model,input_snapshot,output_json) VALUES (?,?,?,?,?)").run(id,claim.id,cleanString(req.body.model || "manual",{max:100}) || "manual",JSON.stringify({speaker:claim.speaker,quote:claim.quote,context:claim.context,sources}),JSON.stringify(output));
+  if (claim.status !== "published") await db.prepare("UPDATE claims SET status='in_review',updated_at=CURRENT_TIMESTAMP WHERE id=?").run(claim.id);
+  await audit(req,"claim_review_added","claim_review",id);
+  res.status(201).json({id,status:"in_review"});
+}));
+app.post("/api/admin/claims/:id/decision", requireCsrf, requireAdmin, asyncHandler(async (req,res) => {
+  const decision = req.body?.decision;
+  if (!["approved","rejected","published"].includes(decision)) return res.status(400).json({error:"Decisão inválida."});
+  const claim = await db.prepare("SELECT * FROM claims WHERE id=?").get(req.params.id);
+  if (!claim) return res.status(404).json({error:"Ficha não encontrada."});
+  if (decision === "published" && claim.status !== "approved") return res.status(409).json({error:"A ficha precisa ser aprovada antes da publicação."});
+  if (decision === "approved") {
+    const count = await db.prepare("SELECT COUNT(*) AS count FROM claim_sources WHERE claim_id=?").get(claim.id);
+    const isX = claim.video_url.includes("x.com") || claim.video_url.includes("twitter.com");
+    if (!claim.quote || (!claim.timestamp && !isX) || Number(count?.count || 0) < 1) return res.status(409).json({error:"Registre fala, timestamp (exceto X) e uma fonte de checagem antes de aprovar."});
+  }
+  await db.prepare("UPDATE claims SET status=?,published_at=CASE WHEN ?='published' THEN CURRENT_TIMESTAMP ELSE published_at END,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(decision,decision,claim.id);
+  await audit(req,"claim_"+decision,"claim",claim.id);
+  res.set("Cache-Control","no-store").json({id:claim.id,status:decision});
+}));
+app.post("/api/admin/claims/:id/relations", requireCsrf, requireAdmin, asyncHandler(async (req,res) => {
+  const b = req.body || {};
+  if (!["related","supports","contradicts","same_topic","contextualizes"].includes(b.relation_type)) return res.status(400).json({error:"Tipo de relação inválido."});
+  if (b.related_claim_id === req.params.id) return res.status(400).json({error:"Uma ficha não pode se relacionar consigo mesma."});
+  const a = await db.prepare("SELECT id FROM claims WHERE id=?").get(req.params.id);
+  const r = await db.prepare("SELECT id FROM claims WHERE id=?").get(b.related_claim_id);
+  if (!a || !r) return res.status(404).json({error:"Ficha relacionada não encontrada."});
+  const id = crypto.randomUUID();
+  await db.prepare("INSERT INTO claim_relations (id,claim_id,related_claim_id,relation_type,explanation) VALUES (?,?,?,?,?)").run(id,a.id,r.id,b.relation_type,cleanString(b.explanation || "",{max:1500}) || "");
+  await audit(req,"claim_relation_added","claim_relation",id);
+  res.status(201).json({id});
+}));
+
 app.use(express.static(publicDir, {
   index: "index.html",
   dotfiles: "deny",
