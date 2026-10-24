@@ -1,23 +1,23 @@
-# FitaSolta — mural de fontes e conexões
+# FitaSolta — mural de fontes e investigações
 
-O FitaSolta organiza entidades, relações e fontes externas com rastreabilidade. O site guarda metadados e links; não recebe nem hospeda PDFs enviados.
+O FitaSolta é uma ferramenta independente para organizar fontes públicas, relações documentadas, afirmações, casos e andamento editorial. O sistema guarda metadados, citações, localizadores e links de origem; não hospeda cópias de vídeos nem uploads de PDFs.
 
 ## Requisitos
 
 - Node.js 22.x
-- Uma base Turso (libSQL)
-- Git e VS Code (para desenvolvimento local)
+- Banco Turso/libSQL com permissão de leitura e escrita
+- Git e VS Code para desenvolvimento local
 
 ## Configuração local
 
 1. Instale as dependências:
 
    ```bash
-   npm install
+   npm ci
    ```
 
 2. Copie `.env.example` para `.env`.
-3. No painel do Turso, crie um banco e um token com permissão de leitura e escrita. Configure `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN`. Os nomes legados `HOST_TURSO` e `TOKEN_TURSO` continuam aceitos como alternativa.
+3. Crie um banco Turso de desenvolvimento e um token read/write. Configure `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN`. Os nomes antigos `HOST_TURSO` e `TOKEN_TURSO` são aceitos como alternativa, desde que formem um par do mesmo banco.
 4. Gere um segredo de sessão:
 
    ```bash
@@ -32,9 +32,9 @@ O FitaSolta organiza entidades, relações e fontes externas com rastreabilidade
    node -e "const b=require('bcryptjs'); const p=process.argv[1]; if(!p){console.error('Informe uma senha entre aspas como argumento.');process.exit(1)} console.log(b.hashSync(p,12))" "SUA_SENHA_FORTE_AQUI"
    ```
 
-   Substitua o texto de exemplo pela sua própria senha, execute localmente e coloque somente o hash retornado em `ADMIN_PASSWORD_HASH`. Não compartilhe a senha real nem publique o arquivo `.env`.
+   Execute o comando localmente com sua própria senha e coloque somente o hash em `ADMIN_PASSWORD_HASH`. Nunca compartilhe a senha real nem publique `.env`.
 
-6. Inicie o servidor e abra o endereço local:
+6. Inicie e abra a aplicação:
 
    ```bash
    npm run dev
@@ -42,51 +42,76 @@ O FitaSolta organiza entidades, relações e fontes externas com rastreabilidade
 
    Acesse http://localhost:3333.
 
-## Testes
+Se o banco não estiver configurado/conectado, a API responde com erro de disponibilidade e não grava em SQLite local como fallback. Isso evita a falsa impressão de que os dados estão persistidos.
+
+## Funcionalidades
+
+### Mural e fontes
+
+A página inicial oferece o mural de entidades e relações documentadas e links de fontes. Uma conexão temática não comprova culpa, causalidade, conluio ou participação criminosa. A fonte, o contexto e o estado de verificação precisam acompanhar cada registro.
+
+### Debates e checagens
+
+A página `/debates.html` organiza os materiais originais enviados para análise, fichas de afirmação, URLs de checagens jornalísticas e fontes primárias.
+
+1. Entre na **Área administrativa** da página inicial com a conta administrativa configurada e acesse a página de debates na mesma sessão.
+2. Registre a fala literal, quem a proferiu, o material original, o timestamp para vídeos e o contexto. Publicações do X podem não ter timestamp.
+3. Cadastre checagens existentes, fontes primárias e evidências favoráveis/contrárias.
+4. Salve a ficha como rascunho. Rascunhos ficam privados; a sequência editorial é enviar para revisão, aprovar e publicar separadamente.
+5. A publicação exige fontes registradas e aprovação explícita. Uma ficha publicada não é alterada silenciosamente: registre correção ou reabra a revisão conforme o fluxo editorial.
+
+O sistema não transcreve automaticamente vídeos, não navega para verificar toda fonte por conta própria e não usa IA para publicar um veredito. Um link ou uma resposta de IA não é prova factual suficiente.
+
+### Investigações estruturadas
+
+A página `/investigations.html` acrescenta abas de **Casos**, **Pessoas**, **Contradições** e **Cortes de vídeo**, mais uma área editorial autenticada para:
+
+- Criar/editar rascunhos de casos com resumo neutro, jurisdição, órgão, referência oficial, status operacional, data de abertura, última conferência e próxima revisão.
+- Cadastrar pessoas, organizações e instituições, sem misturar o tipo da entidade ao papel que desempenha em um caso.
+- Registrar vínculo entre pessoa e caso (por exemplo, testemunha, vítima, investigado ou autoridade) com fonte e intervalo de validade.
+- Registrar andamentos, distinguindo data do fato, data do documento e data da publicação.
+- Comparar checagens por uma relação explícita de contradição, sustento ou contextualização.
+- Marcar cortes pelo link original, início/fim, citação e contexto anterior/posterior. O sistema não cria, baixa nem hospeda um arquivo de vídeo recortado.
+
+Todos estes registros seguem o fluxo editorial: **rascunho → revisão → aprovação → publicação**. A API pública não devolve rascunhos. Relações pessoa/caso, andamentos e cortes só ficam públicos depois de aprovados e publicados, respeitando também o estado de publicação dos registros associados. Os registros de pessoas devem se limitar a informação necessária e baseada em fonte, com cuidado reforçado para vítimas, testemunhas e pessoas privadas.
+
+## API principal
+
+- `GET /api/health`: indica se o banco está conectado; `503 database=not_configured` significa que faltam variáveis ou a base ainda não está pronta.
+- `GET /api/entities`, `GET /api/relationships`, `GET /api/sources`: dados publicados do mural/fontes.
+- `GET /api/claims`, `GET /api/claims/:id`: apenas checagens publicadas.
+- `GET /api/cases`, `GET /api/cases/:id`: apenas casos publicados e seus vínculos/eventos/checagens/cortes publicados.
+- `GET /api/contradictions`, `GET /api/clips`: relações e cortes revisados e publicados.
+- Rotas `/api/admin/*`: criação, edição e revisão; exigem sessão administrativa e proteção CSRF nas operações de escrita.
+
+## Testes e CI
+
+Execute:
 
 ```bash
+npm ci
 npm test
 node --check src/server.js
+node --check public/js/app.js
+node --check public/js/debates.js
+node --check public/js/investigations.js
 ```
 
-## Debates, checagens e revisão editorial
+O teste de integração usa um banco libSQL temporário local e reinicia o servidor para comprovar persistência sem acessar a base real. Ele não substitui o teste de conexão ao banco remoto de Preview/Production.
 
-A página `/debates.html` organiza materiais originais e uma ficha estruturada por afirmação.
+GitHub Actions executa instalação limpa, checagem de sintaxe e testes a cada push e pull request.
 
-1. Abra a página inicial e entre na **Área administrativa** com a conta configurada pelo responsável pelo projeto. Volte a `/debates.html` na mesma sessão.
-2. Escolha o vídeo ou a publicação original, registre a fala literal, o contexto e um timestamp válido para vídeos. Para publicações do X, o timestamp pode ficar vazio.
-3. Registre os URLs das checagens jornalísticas e das fontes primárias. Use **Salvar rascunho no banco** para persistir a ficha no Turso; sem sessão administrativa, nada é salvo.
-4. O rascunho permanece privado. A fila editorial permite iniciar a revisão, editar/rejeitar ou aprovar a ficha. A aprovação exige ao menos uma fonte registrada; a publicação só é permitida depois da aprovação.
-5. Apenas registros com status `published` aparecem na lista pública. Revisão, resumo automático ou existência de um link não garantem que uma alegação esteja correta: confira a fala original, a data, o contexto e a fonte antes de publicar.
+## Configuração na Vercel
 
-### API de checagens
+Configure `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `SESSION_SECRET`, `ADMIN_PASSWORD_HASH` e `TRUST_PROXY=1` nas variáveis apropriadas de cada ambiente. Para Preview, use **uma base Turso de teste separada e seu próprio token**; nunca copie credenciais da base de produção para um ambiente de teste.
 
-- `GET /api/claims`: lista pública somente de checagens publicadas.
-- `GET /api/claims/:id`: detalhes públicos de uma checagem publicada e suas fontes.
-- `GET /api/admin/claims`: fila privada; exige sessão administrativa.
-- `POST /api/admin/claims` e `PUT /api/admin/claims/:id`: criar/editar rascunhos; exigem autenticação e CSRF.
-- `POST /api/admin/claims/:id/reviews`: registrar o início de uma revisão editorial.
-- `POST /api/admin/claims/:id/decision`: aprovar, rejeitar ou publicar seguindo as transições permitidas.
-- `POST /api/admin/claims/:id/sources` e `POST /api/admin/claims/:id/relations`: registrar fontes e relações entre checagens.
+Após alterar variáveis, faça um novo deploy. Antes de promover para produção, confirme o check de build e acesse `/api/health`, que deve responder HTTP 200 com `database=connected`. Em seguida, testar login e gravar/consultar uma ficha no banco remoto de Preview. O teste local com libSQL e CI verde, isoladamente, não comprovam que as variáveis remotas estejam configuradas.
 
-A API não transcreve automaticamente vídeos nem decide a veracidade com IA. A publicação é uma ação editorial humana.
+## Segurança e limites conhecidos
 
-## O que o projeto oferece
-
-- Mural de entidades e relações.
-- URL, data e classificação da evidência para rastrear as fontes.
-- Área administrativa protegida por sessão, CSRF e limite de tentativas de login.
-- Auditoria de eventos sem registrar o IP em texto aberto.
-- Banco remoto Turso/libSQL para persistência em ambiente serverless.
-- CSS, JavaScript e HTML servidos a partir de `public/`.
-
-## O que ainda precisa de trabalho
-
-- O projeto não pesquisa a web automaticamente nem confirma as fontes por conta própria.
-- O mural não prova uma relação só porque duas entidades estão conectadas; cada afirmação deve ser conferida em fontes confiáveis.
-- Antes de um uso sensível ou público amplo, faça revisão de segurança e privacidade, configure backups e teste a restauração.
-- Não registre senhas, tokens ou conteúdo privado nos logs.
-
-## Variáveis de ambiente na Vercel
-
-Configure `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `SESSION_SECRET` e `ADMIN_PASSWORD_HASH` em **Project Settings → Environment Variables**. Para Preview, use uma base de teste separada e um token próprio; não reutilize credenciais da base de produção num ambiente de teste. Não publique valores no GitHub. Após mudar variáveis de ambiente, faça um novo deploy.
+- Usa sessões administrativas, CSRF, limite de tentativas de login e auditoria sem IP em texto aberto.
+- O banco remoto é o armazenamento persistente; não use arquivos em `/tmp` como banco de produção em execução serverless.
+- Não registra senhas ou tokens nos logs.
+- Antes de uso público sensível, configure backups e teste de restauração, revise privacidade/LGPD, autorização por função e segurança de SSRF.
+- Não presume culpa a partir de uma investigação, denúncia, prisão, conexão entre entidades ou fala fora de contexto.
+- Os materiais políticos fornecidos são fontes de origem para checagem, não vereditos prontos. Alegações sem citação literal, timestamp/contexto e fontes confiáveis devem permanecer não verificadas.
