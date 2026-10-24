@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0d12">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <title>Painel administrativo — FitaSolta</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/admin.css">
+  <script src="/js/app.js" defer></script>
+</head>
+<body class="admin-app">
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="FitaSolta — site público">
+      <span class="brand-mark" aria-hidden="true">FS</span>
+      <span>FITASOLTA</span>
+    </a>
+    <nav aria-label="Navegação administrativa">
+      <a href="/">Ver site público</a>
+      <a href="/revisao.html">Revisão editorial</a>
+    </nav>
+  </header>
+
+  <main class="container admin-main">
+    <section class="hero admin-hero">
+      <p class="eyebrow">AMBIENTE PRIVADO</p>
+      <h1>Painel administrativo</h1>
+      <p class="muted">Gerencie o processamento de fontes e acompanhe a atividade editorial. Esta página só é entregue pelo servidor quando a sessão administrativa está autenticada.</p>
+      <div class="admin-automation-note">
+        <span class="admin-note-mark" aria-hidden="true">↻</span>
+        <p><strong>Processamento automático ativo</strong><br>O FitaSolta tenta processar até 3 fontes por dia, priorizando pendências. Fontes que falharem ficam registradas para nova tentativa automática e podem ser retentadas manualmente.</p>
+      </div>
+    </section>
+
+    <section id="admin-login-panel" class="panel admin-login-panel" aria-labelledby="admin-title" hidden>
+      <p class="eyebrow">AUTENTICAÇÃO</p>
+      <h2 id="admin-title">Sua sessão precisa de autenticação</h2>
+      <p class="muted">Entre novamente para continuar. A senha é validada no servidor.</p>
+      <form id="login-form" class="form-stack">
+        <label for="admin-password">Senha administrativa</label>
+        <input id="admin-password" name="password" type="password" autocomplete="current-password" minlength="12" maxlength="200" aria-describedby="login-status" required>
+        <button class="button" type="submit">Entrar</button>
+      </form>
+      <p id="login-status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
+    </section>
+
+    <section id="audit-panel" class="panel admin-panel" aria-labelledby="audit-heading" hidden>
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">SEGURANÇA</p>
+          <h2 id="audit-heading">Eventos de auditoria</h2>
+          <p class="muted">Registro das ações administrativas recentes.</p>
+        </div>
+        <button id="logout-button" class="button button-outline" type="button">Sair</button>
+      </div>
+      <ol id="audit-list" class="audit-list"></ol>
+    </section>
+
+    <section id="source-queue-panel" class="panel admin-panel" aria-labelledby="source-queue-heading" hidden>
+      <div class="section-heading admin-queue-heading">
+        <div>
+          <p class="eyebrow">FONTES</p>
+          <h2 id="source-queue-heading">Fila de processamento</h2>
+          <p class="muted">Os títulos e resumos ajudam na navegação, mas não substituem a leitura da fonte original nem uma revisão humana.</p>
+        </div>
+        <div class="admin-actions">
+          <button id="refresh-source-queue" class="button button-outline" type="button">Atualizar fila</button>
+          <button id="process-source-queue" class="button" type="button">Processar 3 pendentes agora</button>
+          <button id="retry-source-errors" class="button button-outline" type="button">Tentar novamente fontes com erro</button>
+        </div>
+      </div>
+
+      <p id="source-queue-status" class="status admin-status" role="status" aria-live="polite"></p>
+      <label class="sr-only" for="source-queue-search">Filtrar fontes</label>
+      <input id="source-queue-search" type="search" placeholder="Filtrar por título, URL, resumo ou erro…" autocomplete="off">
+      <ul id="source-queue-list" class="source-queue-list"></ul>
+    </section>
+
+    <section id="gemini-review-panel" class="panel admin-panel" aria-labelledby="gemini-review-heading" hidden>
+      <p class="eyebrow">APOIO EDITORIAL</p>
+      <h2 id="gemini-review-heading">Revisão de evidências com Gemini</h2>
+      <p class="muted">Compare uma afirmação com um trecho fornecido manualmente. A análise é auxiliar, não uma verificação independente da URL nem uma decisão editorial.</p>
+      <form id="gemini-review-form" class="form-stack admin-review-form">
+        <label for="gemini-claim">Afirmação a revisar</label>
+        <textarea id="gemini-claim" rows="3" maxlength="3000" required placeholder="Ex.: A decisão anulou a condenação por determinado fundamento…"></textarea>
+        <label for="gemini-context">Contexto do caso (opcional)</label>
+        <textarea id="gemini-context" rows="2" maxlength="3000"></textarea>
+        <label for="gemini-source-title">Título da fonte</label>
+        <input id="gemini-source-title" maxlength="300">
+        <label for="gemini-source-url">URL da fonte</label>
+        <input id="gemini-source-url" type="url" maxlength="2000" placeholder="https://…">
+        <label for="gemini-source-excerpt">Trecho relevante da fonte</label>
+        <textarea id="gemini-source-excerpt" rows="6" maxlength="12000" required placeholder="Cole o trecho do documento, decisão ou reportagem que sustenta a afirmação."></textarea>
+        <button id="gemini-review-submit" class="button" type="submit">Analisar trecho</button>
+      </form>
+      <div id="gemini-review-result" class="status admin-review-result" role="status" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>FitaSolta · painel privado · revise antes de publicar</span>
+    <a href="/">Voltar ao site público</a>
+  </footer>
+</body>
+</html>
