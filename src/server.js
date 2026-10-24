@@ -1173,12 +1173,13 @@ async function processSourceItems(req,sources){
   let extracted;
   if(source.raw_text){
    const originalUrl=source.original_url||"",mediaUrl=source.media_url||originalUrl,video=parseYouTubeReference(mediaUrl),imageUrl=source.media_type==="image"?mediaUrl:"";
+   const sourceUrl=originalUrl||(video?video.video_url:(imageUrl||source.media_url||""));
    let linkedPage=null;
    if(originalUrl&&source.media_type!=="text"&&!video&&!imageUrl){try{linkedPage=await extractSourcePage(originalUrl)}catch{}}
    const imageData=imageUrl?await downloadImageForAnalysis(imageUrl):null;
    const transcript=video?await fetchYouTubeTranscriptById(video.video_id):"";
    const text=[source.raw_text,linkedPage&&linkedPage.text?linkedPage.text:"",transcript?"TRANSCRIÇÃO PÚBLICA DO VÍDEO:\n"+transcript:""].filter(Boolean).join("\n\n").slice(0,18000);
-   extracted={title:source.title||(linkedPage&&linkedPage.title)||"Material enviado",text,url:originalUrl,original_url:originalUrl,
+   extracted={title:source.title||(linkedPage&&linkedPage.title)||"Material enviado",text,url:sourceUrl,original_url:sourceUrl,
     media_url:mediaUrl,media_type:source.media_type||(video?"video":imageUrl?"image":"text"),image_url:imageUrl,imageData,
     video_id:video?video.video_id:"",video_start:video?video.video_start:0,video_source_url:video?video.video_url:"",
     transcript_available:Boolean(transcript),transcript};
