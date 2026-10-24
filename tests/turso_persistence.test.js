@@ -267,7 +267,7 @@ test("libSQL persistence survives restart and keeps the editorial publication ga
       next_review_at: "2026-11-01"
     }
   });
-  assert.equal(createdCase.response.status, 201, JSON.stringify(createdCase.body));
+  assert.equal(createdCase.response.status, 201, JSON.stringify(createdCase.body) + "\n" + child.testLogs());
   const caseId = createdCase.body.id;
   const publicCasesBefore = await requestJson(baseUrl, "/api/cases");
   assert.equal(publicCasesBefore.body.cases.some((item) => item.id === caseId), false);
