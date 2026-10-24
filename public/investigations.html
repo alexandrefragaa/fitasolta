@@ -115,6 +115,17 @@
       </section>
 
       <section class="editorial-card">
+        <h3>Vincular checagem a um caso</h3>
+        <form id="case-claim-form" class="form-stack">
+          <label>Caso<select name="case_id" id="case-claim-case" required></select></label>
+          <label>Checagem existente<select name="claim_id" id="case-claim-claim" required></select></label>
+          <p class="status-note">A checagem precisa continuar em rascunho ou revisão. O vínculo não publica nenhum dos registros.</p>
+          <button class="button" type="submit">Vincular checagem</button>
+          <p id="case-claim-form-status" class="status" role="status"></p>
+        </form>
+      </section>
+
+      <section class="editorial-card">
         <h3>Andamento / linha do tempo</h3>
         <form id="event-form" class="form-stack">
           <label>Caso<select name="case_id" id="event-case" required></select></label>
