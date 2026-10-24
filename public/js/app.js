@@ -826,8 +826,9 @@
       const isVideo = Boolean(ficha.video_id || youtubeId(source.media_url || ficha.media_url || source.url));
       const isImage = Boolean(ficha.image_url || (source.media_type === "image" && source.media_url));
       const isLegal = /process|justiça|sentença|tribunal|lei|medida|governo|decisão/i.test([category, source.title, d.cases, d.legalStatus].join(" "));
-      const modeMatches = mode === "all" || (mode === "claims" && Boolean(claim?.quote)) ||
-        (mode === "media" && (isVideo || isImage)) || (mode === "legal" && isLegal);
+      const isCaseRecord = /caso|process|inquerito|condena|absolvi|anula|crime|denuncia|acusac/i.test([source.title, d.cases, d.legalStatus, d.summary, category].join(" "));
+      const hasContradiction = Array.isArray(fact?.contradictory_sources) && fact.contradictory_sources.length > 0;
+      const modeMatches = mode === "all" || (mode === "claims" && Boolean(claim?.quote)) || (mode === "media" && (isVideo || isImage)) || (mode === "legal" && isLegal) || (mode === "cases" && isCaseRecord) || (mode === "contradictions" && hasContradiction);
       const searchText = normalizeInvestigativeSearch([
         source.title, source.url, source.summary, source.description, category,
         d.people, d.organizations, d.cases, d.legalStatus, claim?.quote, claim?.speaker
