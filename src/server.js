@@ -651,6 +651,26 @@ app.delete("/api/documents/:id", requireCsrf, requireAdmin, async (req, res, nex
   }
 });
 
+
+app.get("/api/sources", async (req, res) => {
+  try {
+    const sources = await readTursoSourceQueue();
+    res.set("Cache-Control", "no-store").json({
+      sources: sources.map(({ id, url, status, title, summary, created_at, updated_at }) => ({
+        id, url, status, title, summary, created_at, updated_at
+      }))
+    });
+  } catch (error) {
+    const notConfigured = error?.code === "TURSO_NOT_CONFIGURED";
+    console.error("Não foi possível carregar as fontes públicas.");
+    res.status(notConfigured ? 503 : 502).json({
+      error: notConfigured
+        ? "O banco de fontes ainda não está configurado."
+        : "Não foi possível consultar o banco de fontes. Tente novamente mais tarde."
+    });
+  }
+});
+
 app.get("/api/admin/sources", requireAdmin, async (req, res) => {
   try {
     const sources = await readTursoSourceQueue();

@@ -13,6 +13,7 @@
     loadingGraph: false,
     loadingDocuments: false,
     loadingSourceQueue: false,
+    loadingPublicBoard: false,
     sourceQueue: [],
     uploadingDocument: false
   };
@@ -38,6 +39,8 @@
     search: $("#search"),
     searchButton: $("#search-button"),
     graph: $("#graph"),
+    publicSourceList: $("#public-source-list"),
+    boardSummary: $("#board-summary"),
     graphDetails: $("#entity-details"),
     refreshGraph: $("#refresh-graph"),
 
@@ -654,6 +657,51 @@
     } finally {
       state.loadingSourceQueue = false;
       setButtonLoading(elements.refreshSourceQueue, false);
+    }
+  }
+
+
+  async function loadPublicBoard() {
+    if (!elements.publicSourceList || state.loadingPublicBoard) return;
+    state.loadingPublicBoard = true;
+    elements.publicSourceList.replaceChildren(createMessage("Consultando o banco de fontes…"));
+    try {
+      const response = await fetch(`${API}/sources`, { headers: { Accept: "application/json" }, cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `Falha ao carregar fontes (HTTP ${response.status}).`);
+      const term = (elements.search?.value || "").trim().toLocaleLowerCase("pt-BR");
+      const sources = (Array.isArray(data.sources) ? data.sources : []).filter((source) =>
+        !term || [source.title, source.url, source.summary, source.status]
+          .some((value) => String(value || "").toLocaleLowerCase("pt-BR").includes(term))
+      );
+      elements.publicSourceList.replaceChildren();
+      if (elements.boardSummary) elements.boardSummary.textContent =
+        `${sources.length} registro(s) exibido(s)${term ? " para esta pesquisa" : ""} · dados lidos diretamente do banco de fontes.`;
+      if (!sources.length) {
+        elements.publicSourceList.appendChild(createMessage(term
+          ? "Nenhuma fonte corresponde à sua pesquisa. Tente outro nome ou termo."
+          : "Ainda não há fontes cadastradas para exibir. Adicione links à fila de fontes do Turso na área administrativa."));
+        return;
+      }
+      for (const source of sources) {
+        const card = createElement("article", "public-source-card");
+        const top = createElement("div", "source-card-top");
+        const status = createElement("span", `source-card-status ${source.status}`, readableQueueStatus(source.status));
+        const id = createElement("span", "muted", source.id ? `Registro #${source.id}` : "Registro de fonte");
+        top.append(status, id);
+        const title = createElement("h3", "", source.title || "Fonte sem título");
+        const summary = createElement("p", "source-card-summary", source.summary || "Ainda não há resumo registrado para esta fonte. Abra o link original para consultar o conteúdo.");
+        const footer = createElement("div", "source-card-footer");
+        footer.appendChild(createElement("span", "", `Atualizado: ${formatDate(source.updated_at || source.created_at)}`));
+        appendSourceLink(footer, source.url, "Abrir fonte original ↗");
+        card.append(top, title, summary, footer);
+        elements.publicSourceList.appendChild(card);
+      }
+    } catch (error) {
+      elements.publicSourceList.replaceChildren(createMessage(error.message || "Não foi possível carregar as fontes.", "error-message"));
+      if (elements.boardSummary) elements.boardSummary.textContent = "Não foi possível conectar ao banco de fontes.";
+    } finally {
+      state.loadingPublicBoard = false;
     }
   }
 
@@ -1331,12 +1379,12 @@
     elements.logoutButton?.addEventListener("click", handleLogout);
     elements.uploadForm?.addEventListener("submit", handleDocumentUpload);
 
-    elements.refreshGraph?.addEventListener("click", loadGraph);
+    elements.refreshGraph?.addEventListener("click", loadPublicBoard);
     elements.refreshDocuments?.addEventListener("click", loadDocuments);
     elements.refreshSourceQueue?.addEventListener("click", loadSourceQueue);
     elements.sourceQueueSearch?.addEventListener("input", renderSourceQueue);
 
-    elements.searchButton?.addEventListener("click", applySearch);
+    elements.searchButton?.addEventListener("click", () => { applySearch(); loadPublicBoard(); });
 
     elements.search?.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
@@ -1345,7 +1393,7 @@
       }
     });
 
-    elements.search?.addEventListener("input", applySearch);
+    elements.search?.addEventListener("input", () => { applySearch(); loadPublicBoard(); });
 
     elements.cookieDismiss?.addEventListener(
       "click",
@@ -1373,7 +1421,7 @@
     });
 
     await Promise.allSettled([
-      loadGraph(),
+      loadPublicBoard(),
       checkHealth(),
       checkAdminSession()
     ]);
