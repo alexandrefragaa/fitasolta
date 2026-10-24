@@ -1296,14 +1296,15 @@ app.post("/api/admin/sources", requireCsrf, requireAdmin, asyncHandler(async (re
     const imageUrl = mediaInput || originalUrl || "";
     const looksImage = /\.(?:jpe?g|png|webp|gif|avif)(?:$|[?#])/i.test(imageUrl);
     const mediaUrl = mediaInput || (video ? video.video_url : (looksImage ? imageUrl : ""));
-    const mediaType = textOnly ? "text" : (video ? "video" : (looksImage ? "image" : (mediaUrl ? "link" : "link")));
+    const mediaType = video ? "video" : (looksImage ? "image" : (textOnly && !mediaUrl ? "text" : "link"));
     const dedupeKey = sourceIdentityKey(originalUrl || mediaUrl);
     if (dedupeKey && existing.has(dedupeKey)) { skipped.push({ url: originalUrl || mediaUrl, reason: "Já existe na fila ou no mural" }); continue; }
-    const storedUrl = originalUrl || (textOnly ? "https://fitasolta.vercel.app/#material-" + id : (mediaUrl || ""));
+    const storedUrl = originalUrl || mediaUrl || (textOnly ? "https://fitasolta.vercel.app/#material-" + id : "");
     if (!storedUrl) { skipped.push({ url: "", reason: "Material sem link ou texto" }); continue; }
+    const textToStore = rawText && (urls.length === 1 || (!urls.length && candidate === "")) ? rawText : "";
     await db.prepare("INSERT INTO source_queue (id,url,status,title,summary,error_message,raw_text,original_url,media_url,media_type) VALUES (?, ?, 'pending', ?, '', '', ?, ?, ?, ?)")
       .run(id, storedUrl, titleInput || (textOnly ? "Texto enviado ao radar" : originalUrl || mediaUrl || "Material enviado"),
-        urls.length === 1 ? rawText : "", originalUrl || "", mediaUrl || "", mediaType);
+        textToStore, originalUrl || "", mediaUrl || "", mediaType);
     if (dedupeKey) existing.add(dedupeKey);
     added.push({ id, url: originalUrl || "", title: titleInput || (textOnly ? "Texto enviado ao radar" : originalUrl || mediaUrl), media_type: mediaType });
   }
