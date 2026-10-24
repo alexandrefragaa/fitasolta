@@ -335,7 +335,19 @@ async function initializeDatabase() {
   `);
 }
 
-await initializeDatabase();
+try {
+  await initializeDatabase();
+  console.log("Banco principal do FitaSolta conectado e esquema verificado.");
+} catch (error) {
+  // Não encerre o processo inteiro por uma falha temporária de autenticação/
+  // disponibilidade do Turso. As rotas que dependem do banco continuarão
+  // retornando erro até a configuração ser corrigida.
+  console.error(
+    "Falha ao inicializar o banco principal do FitaSolta:",
+    error?.code || error?.name || "Error",
+    error?.message || "sem detalhes"
+  );
+}
 
 function getTursoSourcesBaseUrl() {
   // Use optional chaining: variáveis ausentes não podem virar TypeError
