@@ -39,6 +39,7 @@ jobs:
           node --check public/js/comparar.js
           node --check public/js/votacao.js
           node --check public/js/revisao.js
+          node --check public/js/investigacoes.js
 
       - name: Run tests
         run: npm test

@@ -7,7 +7,7 @@
     "3":"https://youtu.be/Z2AA0h2wr4U?is=VoeNo02nD5dUGmYI","4":"https://youtu.be/QhluFzoPl30?is=ftcExdKvGcM5ApFi",
     "5":"https://youtu.be/f62pfk2eHCA?is=CeoLcSy2qOQSCJVc","6":"https://youtu.be/X1fp4JzouvA?is=JRPv6B6G0ZsOSjKo",
     "7":"https://www.youtube.com/live/tokmOZltAG8?is=-pbEdidFvWlvq3b8","8":"https://www.youtube.com/live/6ktnzdym2-I?is=ez5AUY1V-p98eQR8",
-    "9":"https://youtu.be/gXN1JxBkyX8?is=rpxtHicZ5OQOOTIi","10":"https://x.com/Haaaysb/status/2113818839821562016"
+    "9":"https://youtu.be/r_NN7y0iJ8w?is=A_SZ9FUw4EYdA6fO","10":"https://youtu.be/JnogZ2RGZvE?is=-PNC1UAbiS5I8g1V","11":"https://youtu.be/42N0vG4iOGw?is=bQo6YXEYXFfzNpMr","12":"https://youtu.be/kJFYdGuwz0E?is=fm0UnqVx9MEZn9-7","13":"https://x.com/Haaaysb/status/2113818839821562016"
   };
   const topicLabels = {saude:"Saúde",economia:"Economia",seguranca:"Segurança",educacao:"Educação",meio_ambiente:"Meio ambiente",corrupcao:"Transparência e corrupção",trabalho:"Trabalho",direitos:"Direitos e cidadania",politica_externa:"Política externa",outros:"Outros temas"};
   const verdictLabels = {confirmada_por_documento:"Confirmada por documento",contradita_por_documento:"Contradita por documento",sem_fonte:"Sem fonte suficiente",em_disputa:"Em disputa",verdadeira:"Verdadeira",falsa:"Falsa",enganosa:"Enganosa / imprecisa",fora_de_contexto:"Fora de contexto",inconclusiva:"Inconclusiva",opiniao_previsao:"Opinião / previsão",nao_verificada:"Não verificada",fato_documentado:"Fato documentado",alegacao:"Alegação",hipotese:"Hipótese"};
