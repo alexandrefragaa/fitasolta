@@ -62,6 +62,10 @@ node --check src/server.js
 - Métricas agregadas opcionais, sem guardar textos pesquisados, endereços IP ou identificadores de visitante nas tabelas de analytics.
 - Área administrativa protegida por sessão remota Turso, CSRF e limite de tentativas de login.
 
+## Revisão de fontes preexistentes
+
+A área administrativa também mantém a fila `source_queue` já utilizada pelo projeto: carrega as fontes, permite processar até três fontes pendentes por execução e usa Gemini para extrair título/resumo e apontar limitações. A leitura do texto da URL é um apoio, não um veredito; o conteúdo extraído nunca publica uma afirmação sozinho. A revisão direta de um trecho com Gemini continua disponível em um painel separado.
+
 ## Como publicar uma afirmação
 
 1. Na página inicial, entre na área administrativa.
