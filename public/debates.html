@@ -282,7 +282,26 @@
      actions.append(actionButton("approve",claim.id,"Aprovar"));actions.append(actionButton("reject",claim.id,"Rejeitar"));
     }
     if(claim.status==="approved") actions.append(actionButton("publish",claim.id,"Publicar"));
-    card.append(actions);root.append(card);
+     card.append(actions);
+     const relationBox=makeText("div","");relationBox.className="review-card";relationBox.dataset.relationBox="true";
+     relationBox.append(makeText("h4","Relacionar com outra checagem"));
+     const target=document.createElement("select");target.dataset.relationTarget="true";
+     const emptyOption=document.createElement("option");emptyOption.value="";emptyOption.textContent="Escolha uma ficha…";target.append(emptyOption);
+     for(const other of data.claims.filter(item=>item.id!==claim.id)){
+      const option=document.createElement("option");option.value=other.id;
+      option.textContent=other.speaker+": "+String(other.quote||"").slice(0,90);target.append(option);
+     }
+     target.disabled=data.claims.length<2;relationBox.append(target);
+     const relationType=document.createElement("select");relationType.dataset.relationType="true";
+     for(const [value,label] of [["related","Relacionada"],["supports","Sustenta"],["contradicts","Contradiz"],["same_topic","Mesmo tema"],["contextualizes","Contextualiza"]]){
+      const option=document.createElement("option");option.value=value;option.textContent=label;relationType.append(option);
+     }
+     relationBox.append(relationType);
+     const explanation=document.createElement("textarea");explanation.dataset.relationExplanation="true";
+     explanation.maxLength=1500;explanation.rows=2;explanation.placeholder="Explique por que as fichas se relacionam (opcional).";relationBox.append(explanation);
+     const relationSave=document.createElement("button");relationSave.type="button";relationSave.className="button button-outline";
+     relationSave.dataset.claimRelation=claim.id;relationSave.textContent="Salvar relação";relationSave.disabled=data.claims.length<2;relationBox.append(relationSave);
+     card.append(relationBox);root.append(card);
    }
   } catch {panel.hidden=true;}
  }
@@ -347,6 +366,25 @@
   } catch(error) {statusNode().textContent="Não foi possível salvar o rascunho: "+error.message;}
  });
  byId("admin-queue").addEventListener("click",async(event)=>{
+  const relationButton=event.target.closest("button[data-claim-relation]");
+  if(relationButton){
+   const box=relationButton.closest("[data-relation-box]");
+   const relatedId=box?.querySelector("[data-relation-target]")?.value||"";
+   const relationType=box?.querySelector("[data-relation-type]")?.value||"related";
+   const explanation=box?.querySelector("[data-relation-explanation]")?.value.trim()||"";
+   if(!relatedId){statusNode().textContent="Escolha outra ficha antes de salvar a relação.";return;}
+   relationButton.disabled=true;
+   try{
+    const headers=await csrfHeaders();
+    await fetchJson("/api/admin/claims/"+encodeURIComponent(relationButton.dataset.claimRelation)+"/relations",{
+     method:"POST",headers,body:JSON.stringify({related_claim_id:relatedId,relation_type:relationType,explanation})
+    });
+    statusNode().textContent="Relação entre checagens registrada.";
+    await loadAdminQueue();
+   }catch(error){statusNode().textContent="Não foi possível registrar a relação: "+error.message;}
+   finally{relationButton.disabled=false;}
+   return;
+  }
   const button=event.target.closest("button[data-claim-action]");if(!button)return;button.disabled=true;
   try {
    if(button.dataset.claimAction==="edit") await editClaim(button.dataset.claimId);
