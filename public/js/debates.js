@@ -10,8 +10,12 @@
   "7":"https://www.youtube.com/live/tokmOZltAG8?is=-pbEdidFvWlvq3b8",
   "8":"https://www.youtube.com/live/6ktnzdym2-I?is=ez5AUY1V-p98eQR8",
   "9":"https://youtu.be/gXN1JxBkyX8?is=rpxtHicZ5OQOOTIi",
-  "10":"https://x.com/Haaaysb/status/2113818839821562016"
- };
+  "10":"https://youtu.be/r_NN7y0iJ8w?is=A_SZ9FUw4EYdA6fO",
+  "11":"https://youtu.be/JnogZ2RGZvE?is=-PNC1UAbiS5I8g1V",
+  "12":"https://youtu.be/42N0vG4iOGw?is=bQo6YXEYXFfzNpMr",
+  "13":"https://youtu.be/kJFYdGuwz0E?is=fm0UnqVx9MEZn9-7",
+  "14":"https://x.com/Haaaysb/status/2113818839821562016"
+};
  const byId = id => document.getElementById(id);
  const value = id => byId(id)?.value.trim() || "";
  function record() {
@@ -20,14 +24,16 @@
    createdAt:new Date().toISOString(),
    speaker:value("speaker"),
    videoNumber:value("video-id"),
-   sourceKind:value("video-id")==="10" ? "publicacao_x" : "video_original",
+   sourceKind:value("video-id")==="14" ? "publicacao_x" : "video_original",
    videoUrl:videoUrls[value("video-id")] || "",
+   claimDate:value("claim-date"),topic:value("topic")||"outros",location:value("location"),evidenceStatus:value("evidence-status")||"nao_verificado",
    timestamp:value("timestamp"),
    quote:value("quote"),
    context:value("context-text"),
    claimType:value("claim-type"),
    journalismChecks:value("journalism").split("\n").map(s=>s.trim()).filter(Boolean),
    primarySources:value("primary").split("\n").map(s=>s.trim()).filter(Boolean),
+   supportingSources:value("supporting-sources").split("\n").map(s=>s.trim()).filter(Boolean),contradictorySources:value("contradictory-sources").split("\n").map(s=>s.trim()).filter(Boolean),
    supportingEvidence:value("support"),
    contradictoryEvidence:value("contradict"),
    provisionalClassification:(({
@@ -45,6 +51,7 @@
   const output = [
    "FICHA DE CHECAGEM — FITASOLTA",
    "Pessoa: "+data.speaker,
+   "Data: "+(data.claimDate||"não informada"),"Tema: "+data.topic,"Rótulo de evidência: "+data.evidenceStatus,
    "Vídeo: "+data.videoUrl,
    "Timestamp: "+data.timestamp,
    "Afirmação literal: "+data.quote,
@@ -52,6 +59,7 @@
    "Tipo: "+data.claimType,
    "Checagens jornalísticas:\n"+(data.journalismChecks.join("\n")||"Ainda não informado"),
    "Fontes primárias:\n"+(data.primarySources.join("\n")||"Ainda não informado"),
+   "Fontes que sustentam:\n"+(data.supportingSources.join("\n")||"Ainda não informado"),"Fontes que contradizem/limitam:\n"+(data.contradictorySources.join("\n")||"Ainda não informado"),
    "Evidências favoráveis: "+(data.supportingEvidence||"Ainda não informado"),
    "Evidências contrárias/limitações: "+(data.contradictoryEvidence||"Ainda não informado"),
    "Classificação provisória: "+data.provisionalClassification,
@@ -101,19 +109,16 @@
  async function loadPublishedClaims() {
   const root=byId("published-claims");
   try {
-   const data=await fetchJson("/api/claims",{cache:"no-store"});root.replaceChildren();
+   const requestedTopic=new URLSearchParams(location.search).get("topic");const data=await fetchJson("/api/claims"+(requestedTopic?"?topic="+encodeURIComponent(requestedTopic):""),{cache:"no-store"});root.replaceChildren();
    if(!data.claims.length){root.append(makeText("p","Ainda não há checagens publicadas.","status-note"));return;}
    for(const claim of data.claims) {
     const card=makeText("article","");card.className="review-card";
-    const verdictLabels={
-     verdadeira:"Verdadeira",falsa:"Falsa",enganosa:"Enganosa / imprecisa",
-     fora_de_contexto:"Fora de contexto",inconclusiva:"Inconclusiva",
-     opiniao_previsao:"Opinião / previsão",nao_verificada:"Não verificada"
-    };
-    card.append(makeText("h3",claim.speaker+" · "+(verdictLabels[claim.verdict]||"Não verificada")));
+    const evidenceLabels={confirmada_por_documento:"Confirmada por documento",contradita_por_documento:"Contradita por documento",sem_fonte:"Sem fonte suficiente",em_disputa:"Em disputa",documentada:"Fato documentado",alegacao:"Alegação",hipotese:"Hipótese",nao_verificado:"Não verificado"};
+     card.append(makeText("h3",claim.speaker+" · "+(evidenceLabels[claim.evidence_status]||"Não verificado")));
+     card.append(makeText("p",(claim.claim_date||"Data não informada")+" · Tema: "+(claim.topic||"outros"),"status-note"));
     card.append(makeText("p","“"+claim.quote+"”"));
     card.append(makeText("p",claim.context,"status-note"));
-    if(claim.explanation) card.append(makeText("p",claim.explanation));
+    if(claim.supporting_evidence)card.append(makeText("p","Evidência registrada: "+claim.supporting_evidence));if(claim.contradictory_evidence)card.append(makeText("p","Limitações registradas: "+claim.contradictory_evidence));
     const link=document.createElement("a");link.href=claim.video_url;link.target="_blank";link.rel="noopener noreferrer";
     link.textContent=claim.source_kind==="publicacao_x"?"Abrir publicação original no X":"Abrir vídeo original";
     card.append(link);
@@ -142,7 +147,7 @@
     const title=source.title||source.publisher||source.url;
     const sourceLink=document.createElement("a");sourceLink.href=source.url;sourceLink.target="_blank";sourceLink.rel="noopener noreferrer";
     sourceLink.textContent=title;item.append(sourceLink);
-    item.append(makeText("p",source.source_type+" · "+(source.notes||source.excerpt||"Link de referência"),"status-note"));
+    const sideLabel=source.side==="supports"?"Sustenta":source.side==="contradicts"?"Contradiz/limita":"Contextualiza";item.append(makeText("p",sideLabel+" · "+source.source_type+" · "+(source.notes||source.excerpt||"Link de referência"),"status-note"));
     box.append(item);
    }
    if(detail.claim.supporting_evidence)box.append(makeText("p","Evidência favorável: "+detail.claim.supporting_evidence));
@@ -178,6 +183,7 @@
     const actions=document.createElement("div");actions.className="button-row";
     if(claim.status!=="published"&&claim.status!=="approved") actions.append(actionButton("edit",claim.id,"Editar rascunho"));
     if(claim.status==="draft"||claim.status==="rejected") actions.append(actionButton("review",claim.id,"Iniciar revisão"));
+     if(claim.status!=="published") actions.append(actionButton("ai-review",claim.id,"Pedir análise da IA"));
     if(claim.status==="in_review") {
      actions.append(actionButton("approve",claim.id,"Aprovar"));actions.append(actionButton("reject",claim.id,"Rejeitar"));
     }
@@ -209,8 +215,8 @@
   const data=await fetchJson("/api/admin/claims/"+encodeURIComponent(id),{cache:"no-store"});
   const claim=data.claim, sources=data.sources||[];
   editingClaimId=claim.id;
-  byId("speaker").value=claim.speaker;
-  const selectedVideo=claim.source_kind==="publicacao_x" ? "10" :
+  byId("speaker").value=claim.speaker;byId("claim-date").value=claim.claim_date||"";byId("topic").value=claim.topic||"outros";byId("location").value=claim.location||"";byId("evidence-status").value=claim.evidence_status||"nao_verificado";
+  const selectedVideo=claim.source_kind==="publicacao_x" ? "14" :
     (Object.entries(videoUrls).find(([,url])=>url===claim.video_url)?.[0] || "");
   byId("video-id").value=selectedVideo;
   byId("video-id").dispatchEvent(new Event("change"));
@@ -219,7 +225,7 @@
   byId("context-text").value=claim.context||"";
   byId("claim-type").value=claim.claim_type||"";
   byId("journalism").value=sources.filter(s=>s.source_type==="jornalistica").map(s=>s.url).join("\n");
-  byId("primary").value=sources.filter(s=>s.source_type==="primaria").map(s=>s.url).join("\n");
+  byId("primary").value=sources.filter(s=>s.source_type==="primaria").map(s=>s.url).join("\n");byId("supporting-sources").value=sources.filter(s=>s.side==="supports").map(s=>s.url).join("\n");byId("contradictory-sources").value=sources.filter(s=>s.side==="contradicts").map(s=>s.url).join("\n");
   byId("support").value=claim.supporting_evidence||"";
   byId("contradict").value=claim.contradictory_evidence||"";
   const labels={"verdadeira":"Verdadeira","falsa":"Falsa","enganosa":"Enganosa / imprecisa","fora_de_contexto":"Fora de contexto","inconclusiva":"Inconclusiva","opiniao_previsao":"Opinião / previsão — não verificável como fato","nao_verificada":"Não verificada"};
@@ -235,8 +241,9 @@
  }
  async function performAction(action,id) {
   const headers=await csrfHeaders();let url="/api/admin/claims/"+encodeURIComponent(id)+"/decision";
-  let body={decision:action};
-  if(action==="review") {
+  let body={decision:({approve:"approved",reject:"rejected",publish:"published"}[action]||action)};
+  if(action==="ai-review") { url="/api/admin/claims/"+encodeURIComponent(id)+"/ai-review";body={}; }
+   if(action==="review") {
    url="/api/admin/claims/"+encodeURIComponent(id)+"/reviews";
    body={model:"manual-editorial-workflow",output:{event:"human_review_started",note:"A revisão humana foi iniciada pela interface; isso não significa que as fontes foram validadas."}};
   }
@@ -254,11 +261,11 @@
    const isUpdate=Boolean(editingClaimId);
    const endpoint=isUpdate?("/api/admin/claims/"+encodeURIComponent(editingClaimId)):"/api/admin/claims";
    const saved=await fetchJson(endpoint,{method:isUpdate?"PUT":"POST",headers,body:JSON.stringify({
-    speaker:data.speaker,video_url:data.videoUrl,source_kind:data.sourceKind,timestamp:data.timestamp,
+    speaker:data.speaker,claim_date:data.claimDate,topic:data.topic,location:data.location,evidence_status:data.evidenceStatus,video_url:data.videoUrl,source_kind:data.sourceKind,timestamp:data.timestamp,
     quote:data.quote,context:data.context,claim_type:data.claimType,verdict:data.provisionalClassification,
     explanation:data.explanation,supporting_evidence:data.supportingEvidence,
     contradictory_evidence:data.contradictoryEvidence,journalism_checks:data.journalismChecks,
-    primary_sources:data.primarySources
+    primary_sources:data.primarySources,supporting_sources:data.supportingSources,contradictory_sources:data.contradictorySources
    })});
    statusNode().textContent=(isUpdate?"Rascunho atualizado: ":"Rascunho salvo: ")+saved.id+". Está privado e deverá passar pela revisão editorial.";
    editingClaimId=null;byId("save-record").textContent="Salvar rascunho no banco (requer login)";
@@ -293,8 +300,8 @@
   finally{button.disabled=false;}
  });
  byId("video-id").addEventListener("change",()=>{
-  const isX=byId("video-id").value==="10";
-  byId("timestamp").placeholder=isX?"Publicação no X: deixe em branco":"Vídeo: 00:12:34";
+  const isX=byId("video-id").value==="14";
+  byId("timestamp").placeholder=isX?"Publicação no X: deixe em branco":"Vídeo: 00:12:34";byId("timestamp").required=!isX;
   const label=document.querySelector('label[for="video-id"]');if(label)label.textContent=isX?"Publicação de origem":"Vídeo de origem";
  });
  loadPublishedClaims();loadAdminQueue();
