@@ -371,6 +371,87 @@ async function readTursoSourceQueue() {
   });
 }
 
+
+async function tursoExecute(sql, args = []) {
+  const response = await fetch(`${getTursoSourcesBaseUrl()}/v2/pipeline`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TURSO_AUTH_TOKEN.trim()}`, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ requests: [
+      { type: "execute", stmt: { sql, args: args.map((value) => value == null ? { type: "null" } : typeof value === "number" ? { type: "integer", value: String(value) } : { type: "text", value: String(value) }) } },
+      { type: "close" }
+    ] }),
+    signal: AbortSignal.timeout(15000)
+  });
+  if (!response.ok) throw new Error("Turso write failed");
+  const payload = await response.json();
+  if (payload?.results?.[0]?.type !== "ok") throw new Error("Turso rejected operation");
+  return payload.results[0].response?.result || null;
+}
+
+async function ensureInvestigationSchema() {
+  await tursoExecute(`CREATE TABLE IF NOT EXISTS investigation_records (
+    id TEXT PRIMARY KEY, record_type TEXT NOT NULL, title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'nao_verificado',
+    case_name TEXT NOT NULL DEFAULT '', event_date TEXT NOT NULL DEFAULT '',
+    source_url TEXT NOT NULL, source_title TEXT NOT NULL DEFAULT '',
+    source_excerpt TEXT NOT NULL DEFAULT '', legal_outcome TEXT NOT NULL DEFAULT '',
+    legal_reason TEXT NOT NULL DEFAULT '', related_people TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+}
+
+async function readInvestigationRecords() {
+  await ensureInvestigationSchema();
+  const response = await fetch(`${getTursoSourcesBaseUrl()}/v2/pipeline`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TURSO_AUTH_TOKEN.trim()}`, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ requests: [
+      { type: "execute", stmt: { sql: "SELECT id, record_type, title, description, status, case_name, event_date, source_url, source_title, source_excerpt, legal_outcome, legal_reason, related_people, created_at, updated_at FROM investigation_records ORDER BY updated_at DESC LIMIT 500" } },
+      { type: "close" }
+    ] }),
+    signal: AbortSignal.timeout(15000)
+  });
+  if (!response.ok) throw new Error("Turso read failed");
+  const payload = await response.json(), result = payload?.results?.[0]?.response?.result;
+  if (payload?.results?.[0]?.type !== "ok" || !Array.isArray(result?.cols) || !Array.isArray(result?.rows)) throw new Error("Invalid query response");
+  const cols = result.cols.map((column) => column.name);
+  return result.rows.map((row) => Object.fromEntries(cols.map((name, i) => {
+    const cell = row[i]; return [name, !cell || cell.type === "null" ? null : cell.value];
+  }))).map((record) => {
+    try { record.related_people = JSON.parse(record.related_people || "[]"); } catch { record.related_people = []; }
+    if (!Array.isArray(record.related_people)) record.related_people = [];
+    return record;
+  });
+}
+
+const RECORD_TYPES = new Set(["pessoa", "caso", "crime", "investigacao", "decisao_judicial", "organizacao", "evento", "conexao"]);
+const RECORD_STATUSES = new Set(["fato_documentado", "alegacao", "investigacao_em_andamento", "denuncia", "condenacao", "absolvicao", "soltura", "anulacao", "arquivamento", "hipotese", "nao_verificado"]);
+
+app.get("/api/investigations", async (req, res) => {
+  try { res.set("Cache-Control", "no-store").json({ records: await readInvestigationRecords() }); }
+  catch { res.status(502).json({ error: "Não foi possível carregar os registros investigativos." }); }
+});
+
+app.post("/api/admin/investigations", requireAdmin, requireCsrf, async (req, res) => {
+  const body = req.body || {};
+  const recordType = cleanString(body.record_type, 40), title = cleanString(body.title, 240);
+  const sourceUrl = normalizeHttpUrl(body.source_url), description = cleanString(body.description, 5000);
+  const sourceTitle = cleanString(body.source_title, 300), sourceExcerpt = cleanString(body.source_excerpt, 3000);
+  const caseName = cleanString(body.case_name, 240), eventDate = cleanString(body.event_date, 30);
+  const legalOutcome = cleanString(body.legal_outcome, 1000), legalReason = cleanString(body.legal_reason, 3000);
+  const status = cleanString(body.status, 40);
+  const relatedPeople = Array.isArray(body.related_people) ? body.related_people.map((v) => cleanString(v, 160)).filter(Boolean).slice(0, 50) : [];
+  if (!RECORD_TYPES.has(recordType) || !title || !sourceUrl || !RECORD_STATUSES.has(status)) return res.status(400).json({ error: "Informe tipo, título, situação e URL de fonte válida." });
+  if (eventDate && !/^\\d{4}(-\\d{2}(-\\d{2})?)?$/.test(eventDate)) return res.status(400).json({ error: "Data inválida. Use AAAA, AAAA-MM ou AAAA-MM-DD." });
+  try {
+    await ensureInvestigationSchema();
+    const id = crypto.randomUUID();
+    await tursoExecute("INSERT INTO investigation_records (id, record_type, title, description, status, case_name, event_date, source_url, source_title, source_excerpt, legal_outcome, legal_reason, related_people) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [id, recordType, title, description, status, caseName, eventDate, sourceUrl, sourceTitle, sourceExcerpt, legalOutcome, legalReason, JSON.stringify(relatedPeople)]);
+    audit(req, "investigation_record_created", recordType, id);
+    res.status(201).json({ ok: true, id });
+  } catch { res.status(502).json({ error: "Não foi possível salvar no banco persistente. Verifique a configuração do Turso." }); }
+});
+
 app.get("/api/health", (req, res) => {
   try {
     db.prepare("SELECT 1").get();
