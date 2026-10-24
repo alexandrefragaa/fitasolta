@@ -928,7 +928,7 @@
           const grid = createElement("div", "source-evidence-grid");
           const groups = [
             { label: "Fontes que sustentam", items: fact.supporting_sources || [], empty: "Nenhuma fonte de apoio foi vinculada com confiança suficiente." },
-            { label: "Fontes que contradizem ou limitam", items: fact.contradictory_sources || [], empty: "A pesquisa não vinculou uma fonte que contradiga ou limite diretamente esta afirmação. A ausência de contraponto na busca não prova que a afirmação seja verdadeira." }
+            { label: "Fontes que contradizem ou limitam", items: fact.contradictory_sources || [], empty: "A pesquisa não conseguiu vincular uma fonte que contradiga ou limite diretamente esta afirmação. A ausência de contraponto na busca não prova que a afirmação seja verdadeira." }
           ];
           const shown = new Set();
           for (const group of groups) {
