@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - fix/turso-storage-remove-pdf-upload
+      - feat/persistent-evidence-workflow
   pull_request:
     branches:
       - main
