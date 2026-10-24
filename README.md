@@ -60,15 +60,16 @@ node --check src/server.js
 - Envio público de correções; elas ficam pendentes até triagem e só são mostradas quando aceitas.
 - Votação participativa mensal de prioridades temáticas com painel que atualiza periodicamente. Não é uma pesquisa eleitoral; a região é opcional e autodeclarada.
 - Métricas agregadas opcionais, sem guardar textos pesquisados, endereços IP ou identificadores de visitante nas tabelas de analytics.
-- Área administrativa protegida por sessão remota Turso, CSRF e limite de tentativas de login.
+- Painel administrativo servido por rota privada, sem link no menu público, protegido por sessão Turso, CSRF e limite de tentativas de login.
+- Processamento automático de até três fontes por dia via Vercel Cron, com fallback entre modelos Gemini e registro de erros para novas tentativas.
 
 ## Revisão de fontes preexistentes
 
-A área administrativa também mantém a fila `source_queue` já utilizada pelo projeto: carrega as fontes, permite processar até três fontes pendentes por execução e usa Gemini para extrair título/resumo e apontar limitações. A leitura do texto da URL é um apoio, não um veredito; o conteúdo extraído nunca publica uma afirmação sozinho. A revisão direta de um trecho com Gemini continua disponível em um painel separado.
+O painel privado mantém a fila `source_queue` já utilizada pelo projeto: carrega as fontes, permite processar manualmente até três fontes por execução e usa Gemini para extrair título/resumo e apontar limitações. Na produção, um Vercel Cron roda diariamente e tenta processar até três pendências sem exigir clique manual; quando a fila não tem pendências, pode recuperar itens presos em processamento ou retentar erros antigos. A leitura do texto da URL é um apoio, não um veredito; o conteúdo extraído nunca publica uma afirmação sozinho. A revisão direta de um trecho com Gemini continua disponível em um painel separado.
 
 ## Como publicar uma afirmação
 
-1. Na página inicial, entre na área administrativa.
+1. Acesse o painel administrativo restrito e autentique-se. O painel não aparece na navegação pública.
 2. Abra **Afirmações** e preencha a fonte original, a fala literal, a data/timestamp e o contexto. Selecione o tema e registre os links primários/jornalísticos, inclusive evidências contrárias.
 3. Salve como rascunho. Ele não aparece publicamente.
 4. Abra **Revisão editorial** e registre uma revisão humana. A IA pode ajudar a apontar lacunas e divergências; seu retorno não é prova nem decisão final.
@@ -78,7 +79,7 @@ A área administrativa também mantém a fila `source_queue` já utilizada pelo 
 
 Obrigatórias: `SESSION_SECRET` (segredo aleatório com 32+ caracteres), `ADMIN_PASSWORD_HASH` (hash bcrypt) e um par correspondente de banco Turso/libSQL: `HOST_TURSO` + `TOKEN_TURSO` ou `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN`. Para o Preview, use um banco de teste separado; não compartilhe o mesmo banco de produção.
 
-Opcionais: `GEMINI_API_KEY`, `GEMINI_MODEL`, `OPENAI_API_KEY` e `OPENAI_MODEL`. As chaves ficam em **Vercel → Project Settings → Environment Variables**, nunca no Git ou no frontend. `GEMINI_API_KEY` habilita a revisão de afirmações pelo Gemini; o servidor usa OpenAI como fallback se só houver `OPENAI_API_KEY`.
+Opcionais: `GEMINI_API_KEY`, `GEMINI_MODEL`, `OPENAI_API_KEY` e `OPENAI_MODEL`. Em produção, configure também `CRON_SECRET` com um segredo aleatório (mínimo recomendado: 16 caracteres) para autenticar o processamento agendado da Vercel. As chaves ficam em **Vercel → Project Settings → Environment Variables**, nunca no Git ou no frontend. `GEMINI_API_KEY` habilita a revisão de afirmações pelo Gemini; o servidor usa OpenAI como fallback se só houver `OPENAI_API_KEY`.
 
 ## Limites e cuidados ainda necessários
 
