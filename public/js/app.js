@@ -1354,6 +1354,66 @@
     }
   }
 
+
+  async function handleGeminiReview(event) {
+    event.preventDefault();
+    const form = $("#gemini-review-form");
+    const result = $("#gemini-review-result");
+    const button = $("#gemini-review-submit");
+    if (!form || !result || !button) return;
+    const val = (id) => $(id)?.value.trim() || "";
+    const payload = {
+      claim: val("#gemini-claim"),
+      context: val("#gemini-context"),
+      source_title: val("#gemini-source-title"),
+      source_url: val("#gemini-source-url"),
+      source_excerpt: val("#gemini-source-excerpt")
+    };
+    button.disabled = true;
+    result.replaceChildren(createMessage("Comparando a afirmação com o trecho informado…"));
+    try {
+      const response = await fetch(`${API}/admin/verify-evidence`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": state.csrfToken, Accept: "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new ApiError(data.error || "A revisão falhou.", response.status);
+      const review = data.review;
+      result.replaceChildren();
+      const heading = createElement("h4", "", `Resultado: ${({
+        sustentada: "Sustentada pelo trecho",
+        parcialmente_sustentada: "Parcialmente sustentada",
+        nao_sustentada_pelo_trecho: "Não sustentada pelo trecho",
+        contradita_pelo_trecho: "Contradita pelo trecho",
+        inconclusiva: "Inconclusiva"
+      })[review.verdict] || "Inconclusiva"}`);
+      result.append(heading);
+      result.append(createElement("p", "", `Confiança estimada pela IA: ${({baixa:"baixa",media:"média",alta:"alta"})[review.confidence] || "baixa"}. Isso não é uma probabilidade estatística.`));
+      if (review.explanation) result.append(createElement("p", "", review.explanation));
+      const addList = (title, items) => {
+        if (!Array.isArray(items) || !items.length) return;
+        result.append(createElement("h5", "", title));
+        const ul = createElement("ul", "");
+        for (const item of items) ul.append(createElement("li", "", item));
+        result.append(ul);
+      };
+      addList("Pontos apoiados pelo trecho", review.supported_points);
+      addList("Informações que faltam", review.missing_points);
+      addList("Cuidados", review.cautions);
+      if (review.suggested_rewrite) {
+        result.append(createElement("h5", "", "Redação mais cautelosa sugerida"));
+        result.append(createElement("p", "", review.suggested_rewrite));
+      }
+      if (review.source_limitations) result.append(createElement("p", "", "Limitações da fonte: " + review.source_limitations));
+      result.append(createElement("p", "muted", review.disclaimer || "Revise manualmente antes de publicar."));
+    } catch (error) {
+      result.replaceChildren(createMessage(error.message || "Não foi possível revisar as evidências.", "empty-state"));
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   // ------------------------------------------------------------
   // Eventos e inicialização
   // ------------------------------------------------------------
@@ -1376,6 +1436,7 @@
     });
 
     elements.loginForm?.addEventListener("submit", handleLogin);
+    $("#gemini-review-form")?.addEventListener("submit", handleGeminiReview);
     elements.logoutButton?.addEventListener("click", handleLogout);
     elements.uploadForm?.addEventListener("submit", handleDocumentUpload);
 
