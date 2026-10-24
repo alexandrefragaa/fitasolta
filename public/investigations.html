@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Fichas estruturadas de casos, pessoas, contradições e trechos de vídeo com fontes e revisão editorial.">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="theme-color" content="#0b0d12">
+  <title>Investigações estruturadas — FitaSolta</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/investigations.css">
+  <script src="/js/investigations.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/" aria-label="FitaSolta — página inicial"><span class="brand-mark" aria-hidden="true">FS</span><span>FITASOLTA</span></a>
+  <nav aria-label="Navegação principal">
+    <a href="/">Mural</a>
+    <a href="/debates.html">Debates e checagens</a>
+    <a href="#cases">Casos</a>
+    <button id="admin-open" class="button button-outline" type="button">Área administrativa</button>
+  </nav>
+</header>
+<main class="container investigations-page">
+  <section class="investigation-hero">
+    <p class="eyebrow">CASOS · PESSOAS · FONTES · CONTEXTO</p>
+    <h1>Investigações estruturadas</h1>
+    <p>Organize casos, papéis documentados, andamentos, checagens relacionadas e intervalos de vídeos. Registros privados só aparecem publicamente após aprovação e publicação explícitas.</p>
+    <p class="warning">Uma pessoa ser mencionada, investigada, denunciada ou presa não prova culpa. Os vínculos devem ter fonte e contexto; hipóteses, alegações e decisões judiciais precisam ser distinguidas.</p>
+  </section>
+
+  <div class="investigation-tabs" role="tablist" aria-label="Seções de investigação">
+    <button type="button" role="tab" data-tab="cases" aria-selected="true">Casos</button>
+    <button type="button" role="tab" data-tab="people" aria-selected="false">Pessoas</button>
+    <button type="button" role="tab" data-tab="contradictions" aria-selected="false">Contradições</button>
+    <button type="button" role="tab" data-tab="clips" aria-selected="false">Cortes de vídeo</button>
+    <button type="button" role="tab" data-tab="editorial" id="editorial-tab" aria-selected="false" hidden>Área editorial</button>
+  </div>
+
+  <section class="panel investigation-panel" id="panel-cases" data-panel="cases" role="tabpanel">
+    <div class="section-heading"><div><p class="eyebrow">PUBLICADOS</p><h2>Casos e processos</h2></div><button class="button button-outline" type="button" data-refresh="cases">Atualizar</button></div>
+    <p class="status-note">Cada ficha deve apontar para uma fonte verificável. Datas de fato, documento e publicação não são intercambiáveis.</p>
+    <div id="public-cases" class="investigation-list" aria-live="polite"><p class="status-note">Carregando casos…</p></div>
+  </section>
+
+  <section class="panel investigation-panel" id="panel-people" data-panel="people" role="tabpanel" hidden>
+    <div class="section-heading"><div><p class="eyebrow">PUBLICADOS</p><h2>Pessoas e organizações</h2></div><button class="button button-outline" type="button" data-refresh="people">Atualizar</button></div>
+    <p class="status-note">Papéis como vítima, testemunha, investigado ou autoridade só são exibidos quando vinculados a um caso com fonte e revisão editorial. Não publicamos dados pessoais desnecessários.</p>
+    <div id="public-people" class="investigation-list" aria-live="polite"><p class="status-note">Carregando registros…</p></div>
+  </section>
+
+  <section class="panel investigation-panel" id="panel-contradictions" data-panel="contradictions" role="tabpanel" hidden>
+    <div class="section-heading"><div><p class="eyebrow">COMPARAÇÃO DOCUMENTADA</p><h2>Contradições entre checagens</h2></div><button class="button button-outline" type="button" data-refresh="contradictions">Atualizar</button></div>
+    <p class="status-note">Uma contradição só é publicada depois da revisão humana, com ambas as checagens e suas fontes publicadas e uma explicação específica do ponto que diverge.</p>
+    <div id="public-contradictions" class="investigation-list" aria-live="polite"><p class="status-note">Carregando contradições…</p></div>
+  </section>
+
+  <section class="panel investigation-panel" id="panel-clips" data-panel="clips" role="tabpanel" hidden>
+    <div class="section-heading"><div><p class="eyebrow">TRECHOS COM LOCALIZADOR</p><h2>Cortes de vídeo</h2></div><button class="button button-outline" type="button" data-refresh="clips">Atualizar</button></div>
+    <p class="status-note">O FitaSolta registra o intervalo, a fala e o contexto e aponta para o vídeo original. Não baixa nem hospeda cópias de vídeo; o trecho precisa manter a fonte e o contexto antes/depois.</p>
+    <div id="public-clips" class="investigation-list" aria-live="polite"><p class="status-note">Carregando trechos…</p></div>
+  </section>
+
+  <section class="panel investigation-panel" id="panel-editorial" data-panel="editorial" role="tabpanel" hidden>
+    <div class="section-heading"><div><p class="eyebrow">PRIVADO · REVISÃO HUMANA</p><h2>Área editorial</h2></div><button id="admin-logout" class="button button-outline" type="button">Encerrar sessão</button></div>
+    <p class="warning">Os formulários criam rascunhos. Para publicar, envie para revisão, aprove e publique separadamente. A publicação de um registro não publica automaticamente seus vínculos, fontes, eventos ou cortes.</p>
+
+    <div class="editorial-grid">
+      <section class="editorial-card">
+        <h3>Ficha de caso</h3>
+        <form id="case-form" class="form-stack">
+          <input name="title" required minlength="3" maxlength="200" placeholder="Título do caso" aria-label="Título do caso">
+          <textarea name="summary" required minlength="10" maxlength="5000" rows="3" placeholder="Resumo neutro, sem presumir culpa" aria-label="Resumo do caso"></textarea>
+          <label>Categoria<select name="category"><option value="investigacao_publica">Investigação pública</option><option value="crime">Crime</option><option value="processo">Processo</option><option value="politica_publica">Política pública</option><option value="debate">Debate</option><option value="outro">Outro</option></select></label>
+          <input name="jurisdiction" maxlength="200" placeholder="Jurisdição" aria-label="Jurisdição">
+          <input name="responsible_agency" maxlength="250" placeholder="Órgão responsável" aria-label="Órgão responsável">
+          <input name="official_reference" maxlength="250" placeholder="Número oficial do processo/inquérito (se público)" aria-label="Referência oficial">
+          <input name="source_url" type="url" placeholder="URL de fonte primária" aria-label="URL de fonte">
+          <label>Status operacional<select name="status"><option value="triagem">Triagem</option><option value="apuracao_preliminar">Apuração preliminar</option><option value="investigacao_em_andamento">Investigação em andamento</option><option value="denuncia_oferecida">Denúncia oferecida</option><option value="denuncia_recebida">Denúncia recebida</option><option value="processo_em_curso">Processo em curso</option><option value="decisao">Decisão</option><option value="recurso">Recurso</option><option value="arquivado">Arquivado</option><option value="encerrado">Encerrado</option><option value="desconhecido">Desconhecido</option></select></label>
+          <label>Data de abertura<input name="opened_at" type="date"></label>
+          <label>Última conferência<input name="last_checked_at" type="date"></label>
+          <label>Próxima revisão<input name="next_review_at" type="date"></label>
+          <button class="button" type="submit">Salvar rascunho do caso</button>
+          <p id="case-form-status" class="status" role="status"></p>
+        </form>
+      </section>
+
+      <section class="editorial-card">
+        <h3>Ficha de pessoa / organização</h3>
+        <form id="person-form" class="form-stack">
+          <input name="name" required maxlength="200" placeholder="Nome público ou identificação" aria-label="Nome">
+          <label>Tipo<select name="type"><option value="person">Pessoa</option><option value="organization">Organização</option><option value="institution">Instituição</option></select></label>
+          <textarea name="description" required minlength="1" maxlength="5000" rows="3" placeholder="Descrição estritamente necessária e neutra" aria-label="Descrição da pessoa"></textarea>
+          <input name="source_url" type="url" placeholder="URL de fonte primária ou pública" aria-label="URL de fonte">
+          <label>Data da fonte<input name="source_date" type="date"></label>
+          <label>Estado da evidência<select name="evidence_status"><option value="nao_verificado">Não verificado</option><option value="documentado">Documentado</option><option value="fato_documentado">Fato documentado</option><option value="alegacao">Alegação</option><option value="hipotese">Hipótese</option></select></label>
+          <button class="button" type="submit">Salvar rascunho da ficha</button>
+          <p id="person-form-status" class="status" role="status"></p>
+        </form>
+      </section>
+
+      <section class="editorial-card">
+        <h3>Vincular pessoa a um caso</h3>
+        <form id="role-form" class="form-stack">
+          <label>Caso<select name="case_id" id="role-case" required></select></label>
+          <label>Pessoa / organização<select name="entity_id" id="role-person" required></select></label>
+          <label>Papel documentado<select name="role"><option value="testemunha">Testemunha</option><option value="vitima">Vítima</option><option value="pessoa_desaparecida">Pessoa desaparecida</option><option value="comunicante">Comunicante</option><option value="investigado">Investigado</option><option value="indiciado">Indiciado</option><option value="denunciado">Denunciado</option><option value="reu">Réu</option><option value="condenado_sem_transito">Condenado sem trânsito em julgado</option><option value="condenado_transito">Condenado com trânsito em julgado</option><option value="autoridade">Autoridade</option><option value="defesa">Defesa</option><option value="investigador">Investigador</option><option value="outro">Outro</option></select></label>
+          <textarea name="role_description" maxlength="1500" rows="2" placeholder="Contexto e ressalvas do papel" aria-label="Contexto do papel"></textarea>
+          <label>Fonte do vínculo<input name="source_url" type="url" required placeholder="URL que documenta o papel"></label>
+          <label>Válido desde<input name="valid_from" type="date"></label>
+          <label>Válido até<input name="valid_to" type="date"></label>
+          <button class="button" type="submit">Criar vínculo em rascunho</button>
+          <p id="role-form-status" class="status" role="status"></p>
+        </form>
+      </section>
+
+      <section class="editorial-card">
+        <h3>Vincular checagem a um caso</h3>
+        <form id="case-claim-form" class="form-stack">
+          <label>Caso<select name="case_id" id="case-claim-case" required></select></label>
+          <label>Checagem existente<select name="claim_id" id="case-claim-claim" required></select></label>
+          <p class="status-note">A checagem precisa continuar em rascunho ou revisão. O vínculo não publica nenhum dos registros.</p>
+          <button class="button" type="submit">Vincular checagem</button>
+          <p id="case-claim-form-status" class="status" role="status"></p>
+        </form>
+      </section>
+
+      <section class="editorial-card">
+        <h3>Andamento / linha do tempo</h3>
+        <form id="event-form" class="form-stack">
+          <label>Caso<select name="case_id" id="event-case" required></select></label>
+          <label>Tipo de andamento<select name="event_type"><option value="noticia_inicial">Notícia inicial</option><option value="instauracao">Instauracão</option><option value="diligencia">Diligência divulgada</option><option value="relatorio">Relatório</option><option value="indiciamento">Indiciamento</option><option value="denuncia">Denúncia</option><option value="recebimento_denuncia">Recebimento da denúncia</option><option value="decisao">Decisão</option><option value="recurso">Recurso</option><option value="arquivamento">Arquivamento</option><option value="encerramento">Encerramento</option><option value="atualizacao_oficial">Atualização oficial</option><option value="outro">Outro</option></select></label>
+          <input name="title" required minlength="3" maxlength="250" placeholder="Título do evento" aria-label="Título do evento">
+          <textarea name="description" maxlength="5000" rows="3" placeholder="Descrição factual" aria-label="Descrição do evento"></textarea>
+          <label>Data do fato<input name="event_date" type="date"></label>
+          <label>Data do documento<input name="document_date" type="date"></label>
+          <label>Data da publicação<input name="published_date" type="date"></label>
+          <label>Fonte oficial ou reportagem identificável<input name="source_url" type="url" required placeholder="URL da fonte"></label>
+          <label>Conferência<select name="verification_status"><option value="not_checked">Não conferido</option><option value="verified">Conferido</option><option value="disputed">Em disputa</option><option value="corrected">Corrigido</option></select></label>
+          <button class="button" type="submit">Criar andamento em rascunho</button>
+          <p id="event-form-status" class="status" role="status"></p>
+        </form>
+      </section>
+
+      <section class="editorial-card">
+        <h3>Marcar corte de vídeo</h3>
+        <form id="clip-form" class="form-stack">
+          <input name="title" required minlength="3" maxlength="250" placeholder="Título curto do trecho" aria-label="Título do corte">
+          <label>Vídeo original<input name="video_url" type="url" required placeholder="https://..."></label>
+          <div class="form-row"><label>Início (MM:SS ou HH:MM:SS)<input name="start_timestamp" required pattern="([0-9]{1,2}:)?[0-5][0-9]:[0-5][0-9]" placeholder="00:01:20"></label><label>Fim (MM:SS ou HH:MM:SS)<input name="end_timestamp" required pattern="([0-9]{1,2}:)?[0-5][0-9]:[0-5][0-9]" placeholder="00:01:40"></label></div>
+          <textarea name="quote" required minlength="1" maxlength="3000" rows="2" placeholder="Trecho literal conferido" aria-label="Trecho literal"></textarea>
+          <textarea name="context_before" maxlength="2000" rows="2" placeholder="Contexto anterior" aria-label="Contexto anterior"></textarea>
+          <textarea name="context_after" maxlength="2000" rows="2" placeholder="Contexto posterior" aria-label="Contexto posterior"></textarea>
+          <textarea name="notes" maxlength="2000" rows="2" placeholder="Notas e limites do recorte" aria-label="Notas do corte"></textarea>
+          <label>Caso associado (opcional)<select name="case_id" id="clip-case"><option value="">Sem caso associado</option></select></label>
+          <label>Checagem publicada (opcional)<select name="claim_id" id="clip-claim"><option value="">Sem checagem associada</option></select></label>
+          <button class="button" type="submit">Salvar corte em rascunho</button>
+          <p id="clip-form-status" class="status" role="status"></p>
+        </form>
+      </section>
+
+      <section class="editorial-card">
+        <h3>Relacionar checagens / registrar contradição</h3>
+        <form id="relation-form" class="form-stack">
+          <label>Primeira checagem<select name="claim_id" id="relation-first" required></select></label>
+          <label>Segunda checagem<select name="related_claim_id" id="relation-second" required></select></label>
+          <label>Tipo de relação<select name="relation_type"><option value="contradicts">Contradiz</option><option value="supports">Sustenta</option><option value="contextualizes">Contextualiza</option><option value="same_topic">Mesmo tema</option><option value="related">Relacionada</option></select></label>
+          <textarea name="explanation" required minlength="10" maxlength="1500" rows="3" placeholder="Explique exatamente o ponto que diverge, com contexto e limites" aria-label="Explicação da relação"></textarea>
+          <button class="button" type="submit">Criar relação em rascunho</button>
+          <p id="relation-form-status" class="status" role="status"></p>
+        </form>
+      </section>
+
+      <section class="editorial-card editorial-card-wide">
+        <h3>Filas de revisão</h3>
+        <div class="queue-heading"><h4>Casos</h4><div id="admin-cases" class="investigation-list"></div></div>
+        <div class="queue-heading"><h4>Pessoas e organizações</h4><div id="admin-people" class="investigation-list"></div></div>
+        <div class="queue-heading"><h4>Vínculos e andamentos</h4><div id="admin-case-details" class="investigation-list"></div></div>
+        <div class="queue-heading"><h4>Cortes de vídeo</h4><div id="admin-clips" class="investigation-list"></div></div>
+        <div class="queue-heading"><h4>Relações entre checagens</h4><div id="admin-relations" class="investigation-list"></div></div>
+        <p id="editorial-status" class="status" role="status"></p>
+      </section>
+    </div>
+  </section>
+
+  <section class="panel investigation-panel">
+    <p class="eyebrow">CRITÉRIO EDITORIAL</p>
+    <h2>O que precisa ser comprovado</h2>
+    <p>Um registro deve preservar a fonte original, as datas, o contexto, as limitações e o estado processual. A associação entre pessoas, casos ou falas não demonstra culpa, causalidade nem conluio. A página registra metadados e localizadores de vídeo; ela não cria arquivos de corte nem substitui a revisão humana.</p>
+  </section>
+</main>
+<footer class="footer"><span>FitaSolta — investigações estruturadas</span><a href="/">Página inicial</a></footer>
+
+<dialog id="admin-dialog" aria-labelledby="admin-dialog-title">
+  <form id="login-form" class="form-stack">
+    <h2 id="admin-dialog-title">Entrar na área editorial</h2>
+    <p class="status-note">Use a conta administrativa já configurada no servidor. A senha não é armazenada nesta página.</p>
+    <label for="admin-password">Senha administrativa</label>
+    <input id="admin-password" name="password" type="password" minlength="12" maxlength="200" required autocomplete="current-password">
+    <p id="login-status" class="status" role="status"></p>
+    <div class="dialog-actions"><button type="submit" class="button">Entrar</button><button type="button" id="admin-cancel" class="button button-outline">Cancelar</button></div>
+  </form>
+</dialog>
+</body>
+</html>

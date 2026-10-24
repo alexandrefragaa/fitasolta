@@ -1,0 +1,50 @@
+name: Verify FitaSolta
+
+on:
+  push:
+    branches:
+      - main
+      - feat/release-evidence-turso
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Check server syntax
+        run: node --check src/server.js
+
+      - name: Check frontend syntax
+        run: |
+          node --check public/js/app.js
+          node --check public/js/debates.js
+          node --check public/js/investigations.js
+          node --check public/js/comparar.js
+          node --check public/js/votacao.js
+          node --check public/js/revisao.js
+          node --check public/js/analytics.js
+          node --check src/js/app.js
+
+      - name: Run tests
+        run: npm test

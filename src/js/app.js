@@ -11,8 +11,6 @@
     relationships: [],
     selectedEntityId: null,
     loadingGraph: false,
-    loadingDocuments: false,
-    uploadingDocument: false
   };
 
   const $ = (selector, root = document) =>
@@ -26,6 +24,17 @@
     loginStatus: $("#login-status"),
     auditPanel: $("#audit-panel"),
     auditList: $("#audit-list"),
+    managePanel: $("#manage-panel"),
+    entityForm: $("#entity-form"),
+    investigateForm: $("#investigate-form"),
+    investigateStatus: $("#investigate-status"),
+    investigateResult: $("#investigate-result"),
+    entityFormStatus: $("#entity-form-status"),
+    relationshipForm: $("#relationship-form"),
+    relationshipFormStatus: $("#relationship-form-status"),
+    relationshipSource: $("#relationship-source"),
+    relationshipTarget: $("#relationship-target"),
+    sourcesList: $("#sources-list"),
     logoutButton: $("#logout-button"),
 
     search: $("#search"),
@@ -33,14 +42,6 @@
     graph: $("#graph"),
     graphDetails: $("#entity-details"),
     refreshGraph: $("#refresh-graph"),
-
-    uploadForm: $("#upload-form"),
-    pdfFile: $("#pdf-file"),
-    uploadAccess: $("#upload-access"),
-    uploadStatus: $("#upload-status"),
-    documentsPanel: $("#documents-panel"),
-    documentsList: $("#documents-list"),
-    refreshDocuments: $("#refresh-documents"),
 
     healthStatus: $("#health-status"),
     cookieNotice: $("#cookie-notice"),
@@ -120,24 +121,6 @@
       dateStyle: "short",
       timeStyle: "short"
     }).format(date);
-  }
-
-  function formatFileSize(bytes) {
-    const size = Number(bytes);
-
-    if (!Number.isFinite(size) || size < 0) {
-      return "Tamanho desconhecido";
-    }
-
-    if (size < 1024) {
-      return `${size} bytes`;
-    }
-
-    if (size < 1024 * 1024) {
-      return `${(size / 1024).toFixed(1)} KB`;
-    }
-
-    return `${(size / (1024 * 1024)).toFixed(2)} MB`;
   }
 
   function readableStatus(status) {
@@ -326,54 +309,18 @@
     if (elements.auditPanel) {
       elements.auditPanel.hidden = !state.isAdmin;
     }
+    if (elements.managePanel) {
+      elements.managePanel.hidden = !state.isAdmin;
+    }
 
     if (elements.adminPassword) {
       elements.adminPassword.value = "";
     }
 
-    updateUploadAccess();
-
     if (state.isAdmin) {
-      await Promise.allSettled([
-        loadDocuments(),
-        loadAuditEvents()
-      ]);
-    } else {
-      if (elements.documentsPanel) {
-        elements.documentsPanel.hidden = true;
-      }
-
-      if (elements.documentsList) {
-        elements.documentsList.replaceChildren();
-      }
-
-      if (elements.auditList) {
-        elements.auditList.replaceChildren();
-      }
-    }
-  }
-
-  function updateUploadAccess() {
-    const fileInput = elements.pdfFile;
-    const submitButton = elements.uploadForm?.querySelector(
-      'button[type="submit"]'
-    );
-
-    if (fileInput) {
-      fileInput.disabled = !state.isAdmin || state.uploadingDocument;
-    }
-
-    if (submitButton) {
-      submitButton.disabled = !state.isAdmin || state.uploadingDocument;
-    }
-
-    if (elements.uploadAccess) {
-      setText(
-        elements.uploadAccess,
-        state.isAdmin
-          ? "Sessão administrativa ativa. Você pode enviar um PDF de até 10 MB."
-          : "Entre na área administrativa para habilitar o envio de documentos."
-      );
+      await loadAuditEvents();
+    } else if (elements.auditList) {
+      elements.auditList.replaceChildren();
     }
   }
 
@@ -445,7 +392,6 @@
       );
     } finally {
       setButtonLoading(submitButton, false);
-      updateUploadAccess();
     }
   }
 
@@ -564,6 +510,8 @@
         : [];
 
       renderGraph();
+      renderSources();
+      updateRelationshipChoices();
 
       if (state.selectedEntityId) {
         const selected = state.entities.find(
@@ -762,6 +710,142 @@
     elements.graph.append(relationHeading, relationsContainer);
   }
 
+  function renderSources() {
+    if (!elements.sourcesList) return;
+    elements.sourcesList.replaceChildren();
+    const sources = [];
+    for (const entity of state.entities) {
+      if (entity.source_url) sources.push({
+        title: entity.name || "Fonte vinculada",
+        url: entity.source_url,
+        date: entity.source_date,
+        status: entity.evidence_status,
+        context: entity.description
+      });
+    }
+    for (const relation of state.relationships) {
+      if (relation.source_url) sources.push({
+        title: relation.label || "Fonte de conexão",
+        url: relation.source_url,
+        date: relation.source_date,
+        status: relation.evidence_status,
+        context: relation.description
+      });
+    }
+    if (!sources.length) {
+      elements.sourcesList.appendChild(createMessage(
+        "Nenhuma fonte cadastrada ainda. Entre na Área administrativa e adicione entidades ou conexões com um link de fonte."
+      ));
+      return;
+    }
+    sources.sort((a, b) => String(a.title).localeCompare(String(b.title), "pt-BR"));
+    for (const source of sources) {
+      const article = createElement("article", "source-item");
+      const title = createElement("h3", "", source.title);
+      const link = createElement("a", "", source.url);
+      link.href = source.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      article.append(title, link);
+      if (source.context) article.appendChild(createElement("p", "muted", source.context));
+      const metadata = [source.date ? formatDate(source.date) : "", readableStatus(source.status)].filter(Boolean).join(" · ");
+      if (metadata) article.appendChild(createElement("p", "muted", metadata));
+      elements.sourcesList.appendChild(article);
+    }
+  }
+
+  function updateRelationshipChoices() {
+    for (const select of [elements.relationshipSource, elements.relationshipTarget]) {
+      if (!select) continue;
+      const previous = select.value;
+      select.replaceChildren();
+      select.appendChild(new Option("Selecione uma entidade…", ""));
+      for (const entity of state.entities) {
+        select.appendChild(new Option(`${entity.name} (${readableType(entity.type)})`, entity.id));
+      }
+      if (state.entities.some((entity) => entity.id === previous)) select.value = previous;
+    }
+  }
+
+
+  async function handleInvestigateSubmit(event) {
+    event.preventDefault();
+    if (!state.isAdmin || !elements.investigateForm) return;
+    const button = elements.investigateForm.querySelector('button[type="submit"]');
+    const url = new FormData(elements.investigateForm).get("url");
+    setButtonLoading(button, true, "Analisando fonte…");
+    setStatus(elements.investigateStatus, "Lendo a página e mapeando entidades, eventos e conexões. Isso pode levar alguns segundos.");
+    elements.investigateResult?.replaceChildren();
+    try {
+      const result = await apiFetch("/admin/investigate-link", { method: "POST", body: { url } });
+      await loadGraph();
+      setStatus(elements.investigateStatus, "Análise concluída. Os registros encontrados foram salvos no mural.");
+      if (elements.investigateResult) {
+        const heading = createElement("h4", "", result.source?.title || "Fonte analisada");
+        const sourceLink = createElement("a", "", result.source?.url || url);
+        sourceLink.href = result.source?.url || url;
+        sourceLink.target = "_blank";
+        sourceLink.rel = "noopener noreferrer";
+        const summary = createElement("p", "", result.summary || "A análise não encontrou um resumo adicional.");
+        const counts = createElement("p", "muted", `Novas entidades: ${result.entities_added ?? 0} · Novas conexões: ${result.relationships_added ?? 0}`);
+        elements.investigateResult.append(heading, sourceLink, summary, counts);
+        if (Array.isArray(result.timeline) && result.timeline.length) {
+          elements.investigateResult.appendChild(createElement("h4", "", "Linha do tempo extraída"));
+          const list = createElement("ol", "investigation-timeline");
+          for (const item of result.timeline) {
+            const text = [item.date, item.event, item.status].filter(Boolean).join(" — ");
+            list.appendChild(createElement("li", "", text));
+          }
+          elements.investigateResult.appendChild(list);
+        }
+      }
+      elements.investigateForm.reset();
+    } catch (error) {
+      setStatus(elements.investigateStatus, error.message || "Não foi possível analisar esse link.", true);
+    } finally {
+      setButtonLoading(button, false);
+    }
+  }
+
+  async function handleEntitySubmit(event) {
+    event.preventDefault();
+    if (!state.isAdmin || !elements.entityForm) return;
+    const button = elements.entityForm.querySelector('button[type="submit"]');
+    setButtonLoading(button, true, "Salvando…");
+    setStatus(elements.entityFormStatus, "");
+    const form = new FormData(elements.entityForm);
+    const payload = Object.fromEntries(form.entries());
+    try {
+      await apiFetch("/entities", { method: "POST", body: payload });
+      elements.entityForm.reset();
+      await loadGraph();
+      setStatus(elements.entityFormStatus, "Registro adicionado ao mural e às fontes, quando houver link.");
+    } catch (error) {
+      setStatus(elements.entityFormStatus, error.message || "Não foi possível salvar o registro.", true);
+    } finally {
+      setButtonLoading(button, false);
+    }
+  }
+
+  async function handleRelationshipSubmit(event) {
+    event.preventDefault();
+    if (!state.isAdmin || !elements.relationshipForm) return;
+    const button = elements.relationshipForm.querySelector('button[type="submit"]');
+    setButtonLoading(button, true, "Salvando…");
+    setStatus(elements.relationshipFormStatus, "");
+    const payload = Object.fromEntries(new FormData(elements.relationshipForm).entries());
+    try {
+      await apiFetch("/relationships", { method: "POST", body: payload });
+      elements.relationshipForm.reset();
+      await loadGraph();
+      setStatus(elements.relationshipFormStatus, "Conexão adicionada ao mural e à lista de fontes, quando houver link.");
+    } catch (error) {
+      setStatus(elements.relationshipFormStatus, error.message || "Não foi possível salvar a conexão.", true);
+    } finally {
+      setButtonLoading(button, false);
+    }
+  }
+
   function renderEmptyDetails() {
     if (!elements.graphDetails) return;
 
@@ -916,218 +1000,6 @@
   }
 
   // ------------------------------------------------------------
-  // Upload e gestão de documentos privados
-  // ------------------------------------------------------------
-
-  async function handleDocumentUpload(event) {
-    event.preventDefault();
-
-    if (!state.isAdmin) {
-      setStatus(
-        elements.uploadStatus,
-        "Entre na área administrativa antes de enviar documentos.",
-        true
-      );
-      return;
-    }
-
-    if (state.uploadingDocument) return;
-
-    const file = elements.pdfFile?.files?.[0];
-
-    if (!file) {
-      setStatus(elements.uploadStatus, "Selecione um PDF.", true);
-      return;
-    }
-
-    if (
-      !file.name.toLowerCase().endsWith(".pdf") ||
-      file.type !== "application/pdf"
-    ) {
-      setStatus(
-        elements.uploadStatus,
-        "Selecione um arquivo com extensão PDF e tipo application/pdf.",
-        true
-      );
-      return;
-    }
-
-    const maxSize = 10 * 1024 * 1024;
-
-    if (file.size > maxSize) {
-      setStatus(
-        elements.uploadStatus,
-        "O arquivo ultrapassa o limite de 10 MB.",
-        true
-      );
-      return;
-    }
-
-    state.uploadingDocument = true;
-    updateUploadAccess();
-
-    const submitButton = elements.uploadForm?.querySelector(
-      'button[type="submit"]'
-    );
-
-    setButtonLoading(submitButton, true, "Enviando…");
-    setStatus(elements.uploadStatus, "Enviando e validando o documento…");
-
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const result = await apiFetch("/documents", {
-        method: "POST",
-        body: formData
-      });
-
-      elements.uploadForm.reset();
-
-      setStatus(
-        elements.uploadStatus,
-        result.message || "PDF enviado com sucesso."
-      );
-
-      await loadDocuments();
-    } catch (error) {
-      setStatus(
-        elements.uploadStatus,
-        error.message || "Não foi possível enviar o documento.",
-        true
-      );
-    } finally {
-      state.uploadingDocument = false;
-      setButtonLoading(submitButton, false);
-      updateUploadAccess();
-    }
-  }
-
-  async function loadDocuments() {
-    if (!state.isAdmin || state.loadingDocuments) return;
-
-    state.loadingDocuments = true;
-
-    if (elements.refreshDocuments) {
-      setButtonLoading(elements.refreshDocuments, true, "Atualizando…");
-    }
-
-    try {
-      const data = await apiFetch("/documents");
-      const documents = Array.isArray(data.documents)
-        ? data.documents
-        : [];
-
-      elements.documentsList?.replaceChildren();
-
-      if (elements.documentsPanel) {
-        elements.documentsPanel.hidden = false;
-      }
-
-      if (documents.length === 0) {
-        elements.documentsList?.appendChild(
-          createMessage("Nenhum PDF armazenado.")
-        );
-        return;
-      }
-
-      for (const documentInfo of documents) {
-        const item = createElement("li", "document-item");
-
-        const title = createElement(
-          "strong",
-          "document-name",
-          documentInfo.original_name || "documento.pdf"
-        );
-
-        const metadata = createElement(
-          "p",
-          "muted",
-          `${formatFileSize(documentInfo.size_bytes)} · Enviado em ${formatDate(documentInfo.uploaded_at)}`
-        );
-
-        const download = createElement(
-          "a",
-          "button button-outline",
-          "Baixar PDF"
-        );
-
-        download.href =
-          `${API}/documents/${encodeURIComponent(documentInfo.id)}/download`;
-
-        download.setAttribute("aria-label", `Baixar ${documentInfo.original_name || "documento PDF"}`);
-
-        const actions = createElement("div", "document-actions");
-        actions.appendChild(download);
-
-        const deleteButton = createElement(
-          "button",
-          "button button-outline",
-          "Excluir"
-        );
-
-        deleteButton.type = "button";
-        deleteButton.addEventListener("click", () => {
-          deleteDocument(documentInfo);
-        });
-
-        actions.appendChild(deleteButton);
-        item.append(title, metadata, actions);
-        elements.documentsList?.appendChild(item);
-      }
-    } catch (error) {
-      elements.documentsList?.replaceChildren(
-        createMessage(
-          error.message || "Não foi possível carregar os documentos.",
-          "error-message"
-        )
-      );
-
-      if (elements.documentsPanel) {
-        elements.documentsPanel.hidden = false;
-      }
-    } finally {
-      state.loadingDocuments = false;
-
-      if (elements.refreshDocuments) {
-        setButtonLoading(elements.refreshDocuments, false);
-      }
-    }
-  }
-
-  async function deleteDocument(documentInfo) {
-    if (!state.isAdmin) {
-      setStatus(
-        elements.uploadStatus,
-        "Sua sessão administrativa não está ativa.",
-        true
-      );
-      return;
-    }
-
-    const name = documentInfo.original_name || "este documento";
-
-    if (!window.confirm(`Deseja excluir permanentemente "${name}"?`)) {
-      return;
-    }
-
-    try {
-      await apiFetch(`/documents/${encodeURIComponent(documentInfo.id)}`, {
-        method: "DELETE"
-      });
-
-      setStatus(elements.uploadStatus, "Documento excluído.");
-      await loadDocuments();
-    } catch (error) {
-      setStatus(
-        elements.uploadStatus,
-        error.message || "Não foi possível excluir o documento.",
-        true
-      );
-    }
-  }
-
-  // ------------------------------------------------------------
   // Estado de saúde da API
   // ------------------------------------------------------------
 
@@ -1203,12 +1075,11 @@
     });
 
     elements.loginForm?.addEventListener("submit", handleLogin);
+    elements.entityForm?.addEventListener("submit", handleEntitySubmit);
+    elements.investigateForm?.addEventListener("submit", handleInvestigateSubmit);
+    elements.relationshipForm?.addEventListener("submit", handleRelationshipSubmit);
     elements.logoutButton?.addEventListener("click", handleLogout);
-    elements.uploadForm?.addEventListener("submit", handleDocumentUpload);
-
     elements.refreshGraph?.addEventListener("click", loadGraph);
-    elements.refreshDocuments?.addEventListener("click", loadDocuments);
-
     elements.searchButton?.addEventListener("click", applySearch);
 
     elements.search?.addEventListener("keydown", (event) => {
@@ -1235,8 +1106,6 @@
   async function initialize() {
     attachEvents();
     initializeCookieNotice();
-    updateUploadAccess();
-
     await refreshCsrfToken().catch(() => {
       setStatus(
         elements.loginStatus,
@@ -1254,7 +1123,6 @@
     // O token pode ter falhado na primeira tentativa se a API
     // ainda não estivesse pronta. Não presumimos autenticação.
     if (state.isAdmin) {
-      updateUploadAccess();
     }
   }
 

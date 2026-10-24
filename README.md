@@ -1,98 +1,128 @@
-# Tribunal das Conexões — base inicial
+# FitaSolta — mural de fontes e investigações
 
-Esta é uma **base de desenvolvimento**, não uma aplicação pronta para produção nem uma auditoria jurídica das informações.
+O FitaSolta é uma ferramenta independente para organizar fontes públicas, relações documentadas, afirmações, casos e andamento editorial. O sistema guarda metadados, citações, localizadores e links de origem; não hospeda cópias de vídeos nem uploads de PDFs.
 
 ## Requisitos
 
-- Node.js 20 ou superior
-- VS Code
+- Node.js 22.x
+- Banco Turso/libSQL com permissão de leitura e escrita
+- Git e VS Code para desenvolvimento local
 
-## Instalação no Windows / VS Code
+## Configuração local
 
-1. Extraia a pasta do ZIP.
-2. Abra a pasta no VS Code.
-3. Abra Terminal → Novo Terminal.
-4. Execute:
+1. Instale as dependências:
+
+   ```bash
+   npm ci
+   ```
+
+2. Copie `.env.example` para `.env`.
+3. Crie um banco Turso de desenvolvimento e um token read/write. Configure `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN`. Os nomes antigos `HOST_TURSO` e `TOKEN_TURSO` são aceitos como alternativa, desde que formem um par do mesmo banco.
+4. Gere um segredo de sessão:
+
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+   ```
+
+   Cole o resultado em `SESSION_SECRET`.
+
+5. Gere um hash bcrypt para uma senha administrativa forte:
+
+   ```bash
+   node -e "const b=require('bcryptjs'); const p=process.argv[1]; if(!p){console.error('Informe uma senha entre aspas como argumento.');process.exit(1)} console.log(b.hashSync(p,12))" "SUA_SENHA_FORTE_AQUI"
+   ```
+
+   Execute o comando localmente com sua própria senha e coloque somente o hash em `ADMIN_PASSWORD_HASH`. Nunca compartilhe a senha real nem publique `.env`.
+
+6. Inicie e abra a aplicação:
+
+   ```bash
+   npm run dev
+   ```
+
+   Acesse http://localhost:3333.
+
+Se o banco não estiver configurado/conectado, a API responde com erro de disponibilidade e não grava em SQLite local como fallback. Isso evita a falsa impressão de que os dados estão persistidos.
+
+## Funcionalidades
+
+### Mural e fontes
+
+A página inicial oferece o mural de entidades e relações documentadas e links de fontes. Uma conexão temática não comprova culpa, causalidade, conluio ou participação criminosa. A fonte, o contexto e o estado de verificação precisam acompanhar cada registro.
+
+### Debates e checagens
+
+A página `/debates.html` organiza os materiais originais enviados para análise, fichas de afirmação, URLs de checagens jornalísticas e fontes primárias.
+
+1. Entre na **Área administrativa** da página inicial com a conta administrativa configurada e acesse a página de debates na mesma sessão.
+2. Registre a fala literal, quem a proferiu, o material original, o timestamp para vídeos e o contexto. Publicações do X podem não ter timestamp.
+3. Cadastre checagens existentes, fontes primárias e evidências favoráveis/contrárias.
+4. Salve a ficha como rascunho. Rascunhos ficam privados; a sequência editorial é enviar para revisão, aprovar e publicar separadamente.
+5. A publicação exige fontes registradas e aprovação explícita. Uma ficha publicada não é alterada silenciosamente: registre correção ou reabra a revisão conforme o fluxo editorial.
+
+O sistema não transcreve automaticamente vídeos, não navega para verificar toda fonte por conta própria e não usa IA para publicar um veredito. Um link ou uma resposta de IA não é prova factual suficiente.
+
+### Investigações estruturadas
+
+A página `/investigations.html` acrescenta abas de **Casos**, **Pessoas**, **Contradições** e **Cortes de vídeo**, mais uma área editorial autenticada para:
+
+- Criar/editar rascunhos de casos com resumo neutro, jurisdição, órgão, referência oficial, status operacional, data de abertura, última conferência e próxima revisão.
+- Cadastrar pessoas, organizações e instituições, sem misturar o tipo da entidade ao papel que desempenha em um caso.
+- Registrar vínculo entre pessoa e caso (por exemplo, testemunha, vítima, investigado ou autoridade) com fonte e intervalo de validade.
+- Registrar andamentos, distinguindo data do fato, data do documento e data da publicação.
+- Comparar checagens por uma relação explícita de contradição, sustento ou contextualização.
+- Marcar cortes pelo link original, início/fim, citação e contexto anterior/posterior. O sistema não cria, baixa nem hospeda um arquivo de vídeo recortado.
+
+Todos estes registros seguem o fluxo editorial: **rascunho → revisão → aprovação → publicação**. A API pública não devolve rascunhos. Relações pessoa/caso, andamentos e cortes só ficam públicos depois de aprovados e publicados, respeitando também o estado de publicação dos registros associados. Os registros de pessoas devem se limitar a informação necessária e baseada em fonte, com cuidado reforçado para vítimas, testemunhas e pessoas privadas.
+
+## API principal
+
+- `GET /api/health`: indica se o banco está conectado; `503 database=not_configured` significa que faltam variáveis ou a base ainda não está pronta.
+- `GET /api/entities`, `GET /api/relationships`, `GET /api/sources`: dados publicados do mural/fontes.
+- `GET /api/claims`, `GET /api/claims/:id`: apenas checagens publicadas.
+- `GET /api/cases`, `GET /api/cases/:id`: apenas casos publicados e seus vínculos/eventos/checagens/cortes publicados.
+- `GET /api/contradictions`, `GET /api/clips`: relações e cortes revisados e publicados.
+- Rotas `/api/admin/*`: criação, edição e revisão; exigem sessão administrativa e proteção CSRF nas operações de escrita.
+
+## Testes e CI
+
+Execute:
 
 ```bash
-npm install
+npm ci
+npm test
+node --check src/server.js
+node --check public/js/app.js
+node --check public/js/debates.js
+node --check public/js/investigations.js
 ```
 
-5. Copie `.env.example` para `.env`.
-6. Gere um segredo de sessão:
+O teste de integração usa um banco libSQL temporário local e reinicia o servidor para comprovar persistência sem acessar a base real. Ele não substitui o teste de conexão ao banco remoto de Preview/Production.
 
-```bash
-node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
-```
+GitHub Actions executa instalação limpa, checagem de sintaxe e testes a cada push e pull request.
 
-Copie o resultado para `SESSION_SECRET` no `.env`.
+## Configuração na Vercel
 
-7. Gere um hash bcrypt para a senha administrativa:
+Configure `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `SESSION_SECRET`, `ADMIN_PASSWORD_HASH` e `TRUST_PROXY=1` nas variáveis apropriadas de cada ambiente. Para Preview, use **uma base Turso de teste separada e seu próprio token**; nunca copie credenciais da base de produção para um ambiente de teste.
 
-```bash
-node -e "const b=require('bcryptjs'); const p=process.argv[1]; if(!p){console.error('Informe uma senha entre aspas como argumento.');process.exit(1)} console.log(b.hashSync(p,12))" "SUA_SENHA_FORTE_AQUI"
-```
+Após alterar variáveis, faça um novo deploy. Antes de promover para produção, confirme o check de build e acesse `/api/health`, que deve responder HTTP 200 com `database=connected`. Em seguida, testar login e gravar/consultar uma ficha no banco remoto de Preview. O teste local com libSQL e CI verde, isoladamente, não comprovam que as variáveis remotas estejam configuradas.
 
-Substitua `SUA_SENHA_FORTE_AQUI` por uma senha forte, execute localmente e coloque **somente o hash retornado** em `ADMIN_PASSWORD_HASH`. Não compartilhe sua senha real nem publique `.env`.
+## Segurança e limites conhecidos
 
-8. Inicie:
+- Usa sessões administrativas, CSRF, limite de tentativas de login e auditoria sem IP em texto aberto.
+- O banco remoto é o armazenamento persistente; não use arquivos em `/tmp` como banco de produção em execução serverless.
+- Não registra senhas ou tokens nos logs.
+- Antes de uso público sensível, configure backups e teste de restauração, revise privacidade/LGPD, autorização por função e segurança de SSRF.
+- Não presume culpa a partir de uma investigação, denúncia, prisão, conexão entre entidades ou fala fora de contexto.
+- Os materiais políticos fornecidos são fontes de origem para checagem, não vereditos prontos. Alegações sem citação literal, timestamp/contexto e fontes confiáveis devem permanecer não verificadas.
 
-```bash
-npm run dev
-```
 
-9. Abra `http://localhost:3000`.
+## Comparação, revisão e participação pública
 
-## O que esta base já faz
+- As fichas públicas mostram estado da evidência (documentada, alegação, hipótese, não verificado ou em disputa), sem expor automaticamente o veredito editorial interno.
+- A tela **Comparar** permite selecionar dois registros publicados, consultar fontes favoráveis e contrárias, abrir vídeo no minuto indicado e ver uma linha do tempo. O sistema não calcula vencedor nem faz ranking de candidatos.
+- **Temas ao vivo** registra prioridade de assunto, não intenção de voto nem pesquisa eleitoral. A região é informada voluntariamente e as tabelas regionais são agregadas.
+- O Gemini pode sugerir lacunas, divergências e fontes primárias ausentes. A sugestão não é prova e nunca publica sozinha; a publicação exige aprovação humana.
+- Correções enviadas pelo público ficam pendentes até revisão. O histórico de alterações fica ligado à ficha.
+- Analytics é opcional, depende de consentimento e guarda apenas contagens agregadas, sem IP, identidade ou texto pesquisado.
 
-- Separa HTML, CSS, JavaScript e backend.
-- Usa Helmet para cabeçalhos de segurança e CSP.
-- Usa cookie de sessão `HttpOnly`, `SameSite=Strict` e `Secure` em produção.
-- Protege login com limite de tentativas.
-- Verifica token CSRF nas operações de autenticação e upload.
-- Registra eventos de auditoria no banco SQLite do servidor.
-- Protege o endpoint de auditoria com autenticação no servidor.
-- Recebe PDFs em diretório privado e valida tipo/tamanho básicos.
-- Não carrega scripts de analytics de terceiros.
-
-## O que ainda NÃO faz
-
-- Não tem OCR nem extração real de texto dos PDFs.
-- Não tem IA, pesquisa na web, monitoramento automático ou grafo com relações verificadas.
-- Não implementa 2FA.
-- Não substitui avaliação de segurança, política de privacidade ou revisão jurídica.
-- O SQLite é apropriado para desenvolvimento/pequeno protótipo; produção pode exigir PostgreSQL, armazenamento de objetos privado e serviço de processamento isolado.
-- O diretório de uploads é privado por não ser servido como conteúdo estático; ainda é necessário adicionar antivírus/antimalware, inspeção real do conteúdo e regras de retenção antes de aceitar documentos de terceiros.
-
-## HTTPS / SSL
-
-Em `localhost`, use HTTP local para desenvolvimento. Em produção, publique atrás de um provedor que ofereça HTTPS válido (por exemplo, Let's Encrypt ou HTTPS gerenciado pela hospedagem). Configure `NODE_ENV=production` e `SESSION_SECRET` forte. Se usar proxy reverso, revise a configuração `trust proxy` no servidor para corresponder exatamente à infraestrutura. Não habilite `trust proxy` indiscriminadamente.
-
-## Analytics e cookies
-
-A base não usa Google Analytics, pixels publicitários ou cookies de rastreamento. O cookie de sessão é necessário para login. Antes de adicionar analytics, defina finalidade, dados coletados, retenção, base legal e mecanismo de consentimento aplicável; não carregue rastreadores antes do consentimento quando ele for necessário.
-
-## Integração de fontes do Turso
-
-A área administrativa pode consultar a tabela `source_queue` da base Turso. A conexão é somente de leitura; o banco SQLite local do FitaSolta continua separado.
-
-Configure estas variáveis no ambiente do servidor (por exemplo, em Vercel → Settings → Environment Variables):
-
-```env
-TURSO_DATABASE_URL=libsql://NOME-DA-BASE-ORGANIZACAO.turso.io
-TURSO_AUTH_TOKEN=COLE_AQUI_UM_TOKEN_READ_ONLY
-```
-
-Use o hostname real exibido na página de conexão do banco e gere um token **read-only** para essa base. Não coloque o token no código, no GitHub ou no navegador. Depois de adicionar/alterar as variáveis, faça um novo deploy. Sem as variáveis, o restante do FitaSolta continua funcionando normalmente; apenas a lista de fontes do Turso fica indisponível.
-
-A lista é exibida somente após login administrativo, pode ser filtrada e não altera os registros da fila. Verifique a fonte original antes de usar um resumo como evidência.
-
-## Antes de publicar
-
-- Use PostgreSQL/armazenamento de arquivos privados conforme a escala.
-- Adicione 2FA, recuperação de conta segura e gestão de usuários.
-- Adicione testes automatizados, monitoramento, backups criptografados e restauração testada.
-- Configure logs sem senhas, tokens ou conteúdo sensível.
-- Adicione verificação de malware, limites de upload e pipeline de PDF/OCR isolado.
-- Faça revisão de segurança e LGPD.
-- Verifique cada afirmação, relação e conclusão jurídica contra fontes primárias, registrando data, URL, trecho e estado processual.
