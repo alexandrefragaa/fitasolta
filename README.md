@@ -68,3 +68,13 @@ node --check src/server.js
 ## Variáveis de ambiente na Vercel
 
 Configure `HOST_TURSO`, `TOKEN_TURSO`, `SESSION_SECRET` e `ADMIN_PASSWORD_HASH` em **Project Settings → Environment Variables**. Não publique os valores no GitHub. Após mudar variáveis de ambiente, faça um novo deploy.
+
+
+## Fluxo de debates e checagem
+
+- A página `/debates.html` reúne links originais e uma ficha estruturada de checagem.
+- Para salvar, entre na área administrativa e depois use **Salvar rascunho no servidor**.
+- Rascunhos e URLs das fontes ficam no banco Turso/libSQL; a API pública só lista fichas publicadas.
+- Vídeos exigem fala literal, contexto e timestamp; publicações no X podem não ter timestamp.
+- A API bloqueia a publicação até que a ficha seja aprovada editorialmente e possua fonte de checagem.
+- A inclusão de uma fala ou postagem na página não significa que ela foi verificada.
