@@ -190,6 +190,7 @@
  });
 
  const statusNode=()=>byId("export-status");
+ let editingClaimId=null;
  async function fetchJson(url, options={}) {
   const response=await fetch(url,{credentials:"same-origin",...options});
   let data={}; try { data=await response.json(); } catch {}
@@ -237,6 +238,7 @@
     card.append(makeText("p","Sustentação: "+(claim.supporting_evidence||"não informada")+" · Limitações: "+(claim.contradictory_evidence||"não informadas")));
     const link=document.createElement("a");link.href=claim.video_url;link.target="_blank";link.rel="noopener noreferrer";link.textContent="Abrir material original";card.append(link);
     const actions=document.createElement("div");actions.className="button-row";
+    if(claim.status!=="published"&&claim.status!=="approved") actions.append(actionButton("edit",claim.id,"Editar rascunho"));
     if(claim.status==="draft"||claim.status==="rejected") actions.append(actionButton("review",claim.id,"Iniciar revisão"));
     if(claim.status==="in_review") {
      actions.append(actionButton("approve",claim.id,"Aprovar"));actions.append(actionButton("reject",claim.id,"Rejeitar"));
@@ -245,6 +247,30 @@
     card.append(actions);root.append(card);
    }
   } catch {panel.hidden=true;}
+ }
+ async function editClaim(id) {
+  const data=await fetchJson("/api/admin/claims/"+encodeURIComponent(id),{cache:"no-store"});
+  const claim=data.claim, sources=data.sources||[];
+  editingClaimId=claim.id;
+  byId("speaker").value=claim.speaker;
+  const selectedVideo=claim.source_kind==="publicacao_x" ? "10" :
+    (Object.entries(videoUrls).find(([,url])=>url===claim.video_url)?.[0] || "");
+  byId("video-id").value=selectedVideo;
+  byId("video-id").dispatchEvent(new Event("change"));
+  byId("timestamp").value=claim.timestamp||"";
+  byId("quote").value=claim.quote||"";
+  byId("context-text").value=claim.context||"";
+  byId("claim-type").value=claim.claim_type||"";
+  byId("journalism").value=sources.filter(s=>s.source_type==="jornalistica").map(s=>s.url).join("\n");
+  byId("primary").value=sources.filter(s=>s.source_type==="primaria").map(s=>s.url).join("\n");
+  byId("support").value=claim.supporting_evidence||"";
+  byId("contradict").value=claim.contradictory_evidence||"";
+  const labels={"verdadeira":"Verdadeira","falsa":"Falsa","enganosa":"Enganosa / imprecisa","fora_de_contexto":"Fora de contexto","inconclusiva":"Inconclusiva","opiniao_previsao":"Opinião / previsão — não verificável como fato","nao_verificada":"Não verificada"};
+  byId("verdict").value=labels[claim.verdict]||"Não verificada";
+  byId("explanation").value=claim.explanation||"";
+  byId("save-record").textContent="Atualizar rascunho no banco";
+  statusNode().textContent="Editando a ficha "+claim.id+". Ao atualizar, ela volta para rascunho privado e deverá passar pela revisão novamente.";
+  byId("claim-form").scrollIntoView({behavior:"smooth",block:"start"});
  }
  function actionButton(action,id,label) {
   const button=document.createElement("button");button.type="button";button.className="button button-outline";
@@ -268,21 +294,26 @@
    const auth=await fetchJson("/api/auth/me",{cache:"no-store"});
    if(!auth.isAdmin){statusNode().textContent="Para salvar no banco, entre na Área administrativa da página inicial e volte a esta ficha. Nada foi salvo ainda.";return;}
    const headers=await csrfHeaders();
-   const saved=await fetchJson("/api/admin/claims",{method:"POST",headers,body:JSON.stringify({
+   const isUpdate=Boolean(editingClaimId);
+   const endpoint=isUpdate?("/api/admin/claims/"+encodeURIComponent(editingClaimId)):"/api/admin/claims";
+   const saved=await fetchJson(endpoint,{method:isUpdate?"PUT":"POST",headers,body:JSON.stringify({
     speaker:data.speaker,video_url:data.videoUrl,source_kind:data.sourceKind,timestamp:data.timestamp,
     quote:data.quote,context:data.context,claim_type:data.claimType,verdict:data.provisionalClassification,
     explanation:data.explanation,supporting_evidence:data.supportingEvidence,
     contradictory_evidence:data.contradictoryEvidence,journalism_checks:data.journalismChecks,
     primary_sources:data.primarySources
    })});
-   statusNode().textContent="Rascunho "+saved.id+" salvo no banco remoto. Está privado e não foi publicado.";
+   statusNode().textContent=(isUpdate?"Rascunho atualizado: ":"Rascunho salvo: ")+saved.id+". Está privado e deverá passar pela revisão editorial.";
+   editingClaimId=null;byId("save-record").textContent="Salvar rascunho no banco (requer login)";
    await loadAdminQueue();
   } catch(error) {statusNode().textContent="Não foi possível salvar o rascunho: "+error.message;}
  });
  byId("admin-queue").addEventListener("click",async(event)=>{
   const button=event.target.closest("button[data-claim-action]");if(!button)return;button.disabled=true;
-  try {await performAction(button.dataset.claimAction,button.dataset.claimId);statusNode().textContent="Ação editorial registrada. Confira novamente fontes e contexto antes da publicação.";}
-  catch(error){statusNode().textContent="A ação não foi concluída: "+error.message;}
+  try {
+   if(button.dataset.claimAction==="edit") await editClaim(button.dataset.claimId);
+   else {await performAction(button.dataset.claimAction,button.dataset.claimId);statusNode().textContent="Ação editorial registrada. Confira novamente fontes e contexto antes da publicação.";}
+  } catch(error){statusNode().textContent="A ação não foi concluída: "+error.message;}
   finally{button.disabled=false;}
  });
  byId("video-id").addEventListener("change",()=>{
