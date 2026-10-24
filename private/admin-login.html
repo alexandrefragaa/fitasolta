@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0d12">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <title>Acesso restrito — FitaSolta</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/admin.css">
+  <script src="/js/app.js" defer></script>
+</head>
+<body class="admin-app">
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="FitaSolta — site público">
+      <span class="brand-mark" aria-hidden="true">FS</span>
+      <span>FITASOLTA</span>
+    </a>
+    <nav aria-label="Navegação">
+      <a href="/">Voltar ao site público</a>
+    </nav>
+  </header>
+
+  <main class="container admin-main">
+    <section class="hero admin-hero">
+      <p class="eyebrow">ACESSO RESTRITO</p>
+      <h1>Painel administrativo</h1>
+      <p class="muted">Entre com a senha administrativa para acessar a fila de fontes, os eventos de auditoria e as ferramentas editoriais.</p>
+    </section>
+
+    <section id="admin-login-panel" class="panel admin-login-panel" aria-labelledby="admin-title">
+      <p class="eyebrow">AUTENTICAÇÃO</p>
+      <h2 id="admin-title">Entrar no painel</h2>
+      <p class="muted">A senha é validada no servidor e não fica armazenada no JavaScript do navegador.</p>
+      <form id="login-form" class="form-stack">
+        <label for="admin-password">Senha administrativa</label>
+        <input id="admin-password" name="password" type="password" autocomplete="current-password" minlength="12" maxlength="200" aria-describedby="login-status" required>
+        <button class="button" type="submit">Entrar</button>
+      </form>
+      <p id="login-status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>FitaSolta · acesso restrito à equipe responsável</span>
+    <a href="/">Site público</a>
+  </footer>
+</body>
+</html>
