@@ -786,7 +786,7 @@ app.post("/api/admin/process-sources", processSourcesLimiter, requireCsrf, requi
 app.get("/api/admin/sources", requireAdmin, async (req, res) => {
   try {
     const sources = await readTursoSourceQueue();
-    audit(req, "source_queue_view", "source_queue");
+    await audit(req, "source_queue_view", "source_queue");
     res.set("Cache-Control", "no-store").json({ sources });
   } catch (error) {
     const notConfigured = error?.code === "TURSO_NOT_CONFIGURED";
