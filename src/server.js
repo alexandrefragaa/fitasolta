@@ -1937,6 +1937,31 @@ app.use("/api", (req, res) => {
   res.status(404).json({ error: "Rota da API não encontrada." });
 });
 
+// A área de administração não fica em /public. O servidor entrega apenas
+// o formulário de login a visitantes sem sessão autenticada.
+app.get("/admin", (req, res, next) => {
+  const file = req.session?.isAdmin === true
+    ? path.join(rootDir, "private", "admin-dashboard.html")
+    : path.join(rootDir, "private", "admin-login.html");
+
+  res.set("Cache-Control", "private, no-store, max-age=0");
+  res.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+  res.sendFile(file, (error) => {
+    if (error && !res.headersSent) next(error);
+  });
+});
+
+// A fila de revisão editorial também exige sessão; visitantes são direcionados
+// à tela de login sem receber o HTML da ferramenta.
+app.get("/revisao.html", (req, res, next) => {
+  if (req.session?.isAdmin !== true) return res.redirect(302, "/admin");
+  res.set("Cache-Control", "private, no-store, max-age=0");
+  res.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+  res.sendFile(path.join(publicDir, "revisao.html"), (error) => {
+    if (error && !res.headersSent) next(error);
+  });
+});
+
 app.use(express.static(publicDir, {
   index: "index.html",
   dotfiles: "deny",
