@@ -24,3 +24,11 @@ test("evidence page preserves original video and X source links", () => {
   assert.match(html, /Haaaysb\/status\/2113818839821562016/);
   assert.match(html, /<strong>Correção de contexto:<\/strong>/);
 });
+
+test("backend distinguishes an unconfigured database from a fatal startup crash", () => {
+  const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  assert.match(server, /const databaseConfigured = Boolean\(TURSO_URL && TURSO_TOKEN\)/);
+  assert.match(server, /database: "not_configured"/);
+  assert.match(server, /DATABASE_NOT_CONFIGURED/);
+  assert.match(server, /res\.status\(503\)/);
+});
