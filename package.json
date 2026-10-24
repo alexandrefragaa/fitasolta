@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --test tests/validation_test.js tests/debates_page.test.js"
+    "test": "node --test tests/validation_test.js tests/debates_page.test.js tests/turso_persistence.test.js"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
