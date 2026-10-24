@@ -138,6 +138,21 @@ async function initializeDatabase() {
       sess TEXT NOT NULL,
       expires INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS source_queue (
+      id TEXT PRIMARY KEY,
+      url TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      title TEXT NOT NULL DEFAULT '',
+      summary TEXT NOT NULL DEFAULT '',
+      error_message TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      raw_text TEXT NOT NULL DEFAULT '',
+      original_url TEXT NOT NULL DEFAULT '',
+      media_url TEXT NOT NULL DEFAULT '',
+      media_type TEXT NOT NULL DEFAULT 'link'
+    );
   `);
 
 
@@ -310,6 +325,12 @@ async function initializeDatabase() {
       target_id: "TEXT NOT NULL DEFAULT ''",
       ip_hash: "TEXT NOT NULL DEFAULT ''",
       created_at: "TEXT"
+    },
+    source_queue: {
+      raw_text: "TEXT NOT NULL DEFAULT ''",
+      original_url: "TEXT NOT NULL DEFAULT ''",
+      media_url: "TEXT NOT NULL DEFAULT ''",
+      media_type: "TEXT NOT NULL DEFAULT 'link'"
     }
   };
 
@@ -585,7 +606,7 @@ const GEMINI_MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite"
 const CRON_SECRET = process.env.CRON_SECRET || "";
 
 // Se um modelo estiver indisponível/sobrecarregado, tenta um segundo modelo estável.
-async function generateGeminiJson(prompt, generationConfig = { temperature: 0.1, responseMimeType: "application/json" }) {
+async function generateGeminiJson(prompt, generationConfig = { temperature: 0.1, responseMimeType: "application/json" }, options = {}) {
   const fallbackModel = GEMINI_MODEL === "gemini-3.5-flash-lite"
     ? "gemini-3.6-flash"
     : "gemini-3.5-flash-lite";
@@ -601,8 +622,9 @@ async function generateGeminiJson(prompt, generationConfig = { temperature: 0.1,
           method: "POST",
           headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY.trim() },
           body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            generationConfig
+            contents: [{ role: "user", parts: [{ text: prompt }, ...(Array.isArray(options.extraParts) ? options.extraParts : [])] }],
+            generationConfig,
+            ...(Array.isArray(options.tools) && options.tools.length ? { tools: options.tools } : {})
           }),
           signal: AbortSignal.timeout(15000)
         }
@@ -752,68 +774,132 @@ function isAllowedSourceUrl(value) {
   }
 }
 
-async function extractSourcePage(rawUrl) {
-  let currentUrl = rawUrl;
-  for (let hop = 0; hop < 4; hop += 1) {
-    if (!isAllowedSourceUrl(currentUrl)) throw new Error("URL externa inválida ou não permitida.");
-    const response = await fetch(currentUrl, {
-      headers: { "User-Agent": "FitaSoltaEvidenceBot/1.0", Accept: "text/html,application/xhtml+xml,text/plain;q=0.9" },
-      redirect: "manual",
-      signal: AbortSignal.timeout(12000)
-    });
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get("location");
-      if (!location || hop === 3) throw new Error("A fonte redirecionou muitas vezes.");
-      currentUrl = new URL(location, currentUrl).href;
-      continue;
+
+function parseYouTubeReference(rawUrl) {
+  const safe = sanitizeTursoSourceUrl(rawUrl);
+  if (!safe) return null;
+  try {
+    const url = new URL(safe), host = url.hostname.toLowerCase().replace(/^www\./, "").replace(/^m\./, "");
+    let id = "";
+    if (host === "youtu.be") id = url.pathname.split("/").filter(Boolean)[0] || "";
+    else if (host === "youtube.com" || host === "youtube-nocookie.com") {
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (url.pathname === "/watch" || url.pathname === "/live") id = url.searchParams.get("v") || "";
+      else if (["embed", "shorts", "live", "v"].includes(parts[0])) id = parts[1] || "";
     }
-    if (!response.ok) throw new Error("A fonte respondeu HTTP " + response.status + ".");
-    const contentType = response.headers.get("content-type") || "";
-    if (!/text\/html|application\/xhtml\+xml|text\/plain/i.test(contentType)) throw new Error("A URL não retornou HTML ou texto legível.");
-    const raw = (await response.text()).slice(0, 600000);
-    const decode = (value) => value.replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'").replace(/&lt;/gi, "<").replace(/&gt;/gi, " ");
-    const title = decode((raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()).slice(0, 300);
-    const text = decode(raw.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ").replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ").replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()).slice(0, 12000);
-    if (text.length < 150) throw new Error("Não foi possível extrair texto suficiente da página.");
-    return { title, text, url: currentUrl };
+    if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return null;
+    const rawStart = url.searchParams.get("start") || url.searchParams.get("t") || "";
+    let start = 0;
+    if (/^\d+$/.test(rawStart)) start = Number(rawStart);
+    else {
+      const match = rawStart.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/i);
+      if (match && (match[1] || match[2] || match[3])) start = Number(match[1] || 0) * 3600 + Number(match[2] || 0) * 60 + Number(match[3] || 0);
+    }
+    return { video_id: id, video_start: Math.max(0, start), video_url: "https://www.youtube.com/watch?v=" + id + (start ? "&t=" + start + "s" : "") };
+  } catch { return null; }
+}
+function htmlDecode(value) {
+  return String(value || "").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&nbsp;/gi, " ").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/\\u0026/gi, "&").replace(/\\\//g, "/");
+}
+function getHtmlAttribute(tag, attribute) {
+  const match = String(tag || "").match(new RegExp("(?:^|\\s)" + attribute + "\\s*=\\s*([\\\"'])([\\s\\S]*?)\\1", "i"));
+  return match ? htmlDecode(match[2]) : "";
+}
+function findMetaContent(raw, names) {
+  const wanted = new Set(names.map((name) => name.toLowerCase()));
+  for (const tag of String(raw || "").match(/<meta\\b[^>]*>/gi) || []) {
+    const name = (getHtmlAttribute(tag, "property") || getHtmlAttribute(tag, "name") || getHtmlAttribute(tag, "itemprop")).toLowerCase();
+    if (wanted.has(name)) { const content = getHtmlAttribute(tag, "content"); if (content) return content; }
+  }
+  return "";
+}
+function formatTranscriptTime(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0)), h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), sec = total % 60;
+  return [h, m, sec].map((v) => String(v).padStart(2, "0")).join(":");
+}
+async function fetchYouTubeTranscriptFromHtml(html) {
+  const match = String(html || "").match(/"captionTracks":(\\[[\\s\\S]*?\\])\\s*,\\s*"audioTracks"/);
+  if (!match) return "";
+  let tracks; try { tracks = JSON.parse(match[1]); } catch { return ""; }
+  if (!Array.isArray(tracks) || !tracks.length) return "";
+  const rank = (t) => { const lang = String(t.languageCode || "").toLowerCase(); return lang === "pt-br" ? 0 : lang === "pt" ? 1 : lang.startsWith("pt") ? 2 : lang === "en" ? 3 : 4; };
+  tracks.sort((a,b) => rank(a)-rank(b));
+  for (const track of tracks.slice(0,3)) {
+    let url; try { url = new URL(String(track.baseUrl || "")); } catch { continue; }
+    if (!["youtube.com","www.youtube.com","youtube-nocookie.com","www.youtube-nocookie.com"].includes(url.hostname.toLowerCase()) || url.pathname !== "/api/timedtext") continue;
+    url.searchParams.set("fmt","json3");
+    try {
+      const response = await fetch(url.href,{headers:{"User-Agent":"FitaSoltaEvidenceBot/1.0",Accept:"application/json, application/xml, text/xml;q=0.9"},signal:AbortSignal.timeout(7000)});
+      if (!response.ok) continue;
+      const body=(await response.text()).slice(0,1000000); let segments=[];
+      try {
+        const data=JSON.parse(body);
+        segments=(Array.isArray(data.events)?data.events:[]).flatMap((event)=>{
+          const text=(event.segs||[]).map((seg)=>seg.utf8||"").join("").replace(/\\s+/g," ").trim(),time=Number(event.tStartMs||0)/1000;
+          return text?[{time,text}]:[];
+        }).slice(0,300);
+      } catch {
+        for(const item of body.matchAll(/<text\\b([^>]*)>([\\s\\S]*?)<\\/text>/gi)){
+          const time=Number(getHtmlAttribute(item[1],"start")),text=htmlDecode(item[2].replace(/<[^>]+>/g," ")).replace(/\\s+/g," ").trim();
+          if(text&&Number.isFinite(time))segments.push({time,text}); if(segments.length>=300)break;
+        }
+      }
+      const transcript=segments.filter((x)=>x.text&&!/^\\[.*?\\]$/.test(x.text)).map((x)=>"["+formatTranscriptTime(x.time)+"] "+x.text).join("\\n").slice(0,10000);
+      if(transcript.length>=80)return transcript;
+    } catch {}
+  }
+  return "";
+}
+async function fetchYouTubeTranscriptById(videoId) {
+  if (!/^[A-Za-z0-9_-]{11}$/.test(String(videoId||""))) return "";
+  try {
+    const r=await fetch("https://www.youtube.com/watch?v="+encodeURIComponent(videoId),{headers:{"User-Agent":"Mozilla/5.0 (compatible; FitaSoltaEvidenceBot/1.0)",Accept:"text/html"},signal:AbortSignal.timeout(7000)});
+    if(!r.ok)return "";
+    return fetchYouTubeTranscriptFromHtml((await r.text()).slice(0,600000));
+  } catch { return ""; }
+}
+async function downloadImageForAnalysis(rawUrl) {
+  if(!isAllowedSourceUrl(rawUrl))return null;
+  try {
+    const r=await fetch(rawUrl,{headers:{"User-Agent":"FitaSoltaEvidenceBot/1.0",Accept:"image/png,image/jpeg,image/webp,image/gif"},redirect:"manual",signal:AbortSignal.timeout(7000)});
+    if(!r.ok)return null;
+    const mimeType=(r.headers.get("content-type")||"").split(";")[0].trim().toLowerCase();
+    if(!["image/jpeg","image/png","image/webp","image/gif"].includes(mimeType)||Number(r.headers.get("content-length")||0)>4194304)return null;
+    const buffer=Buffer.from(await r.arrayBuffer()); if(!buffer.length||buffer.length>4194304)return null;
+    return {mimeType,data:buffer.toString("base64")};
+  } catch { return null; }
+}
+async function extractSourcePage(rawUrl) {
+  let currentUrl=rawUrl;
+  for(let hop=0;hop<4;hop+=1) {
+    if(!isAllowedSourceUrl(currentUrl))throw new Error("URL externa inválida ou não permitida.");
+    const response=await fetch(currentUrl,{headers:{"User-Agent":"FitaSoltaEvidenceBot/1.0",Accept:"text/html,application/xhtml+xml,text/plain,image/png,image/jpeg,image/webp;q=0.8"},redirect:"manual",signal:AbortSignal.timeout(12000)});
+    if([301,302,303,307,308].includes(response.status)){const loc=response.headers.get("location");if(!loc||hop===3)throw new Error("A fonte redirecionou muitas vezes.");currentUrl=new URL(loc,currentUrl).href;continue;}
+    if(!response.ok)throw new Error("A fonte respondeu HTTP "+response.status+".");
+    const type=(response.headers.get("content-type")||"").split(";")[0].trim().toLowerCase();
+    if(type.startsWith("image/")){
+      if(Number(response.headers.get("content-length")||0)>4194304)throw new Error("A imagem excede 4 MB.");
+      const buf=Buffer.from(await response.arrayBuffer());if(!buf.length||buf.length>4194304)throw new Error("A imagem excede 4 MB.");
+      return {title:"Imagem enviada ao FitaSolta",text:"Imagem fornecida como material de análise. Descreva apenas o que é visível e legível; não infira identidade, data ou contexto não visível.",url:currentUrl,original_url:currentUrl,media_url:currentUrl,media_type:"image",image_url:currentUrl,imageData:{mimeType:type,data:buf.toString("base64")},video_id:"",video_start:0,transcript_available:false};
+    }
+    if(!/text\\/html|application\\/xhtml\\+xml|text\\/plain/i.test(type))throw new Error("A URL não retornou HTML, texto ou imagem legível.");
+    const raw=(await response.text()).slice(0,600000);
+    const decode=(v)=>htmlDecode(v).replace(/<[^>]+>/g," ").replace(/\\s+/g," ").trim();
+    const title=decode(findMetaContent(raw,["og:title","twitter:title"])||(raw.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i)||[])[1]||"").slice(0,300);
+    const imageCandidate=findMetaContent(raw,["og:image","og:image:secure_url","twitter:image"]); let imageUrl="";
+    if(imageCandidate){try{const u=new URL(imageCandidate,currentUrl);if(u.protocol==="https:"&&!u.username&&!u.password)imageUrl=u.href}catch{}}
+    let video=parseYouTubeReference(currentUrl),explicitVideoUrl="";
+    const candidates=[...raw.matchAll(/(?:src|href|content|data-src)\\s*=\\s*["']([^"']*(?:youtube\\.com|youtu\\.be|youtube-nocookie\\.com)[^"']*)["']/gi)].slice(0,40);
+    for(const item of candidates){let u;try{u=new URL(htmlDecode(item[1]).replace(/\\\\u0026/g,"&"),currentUrl)}catch{continue}const found=parseYouTubeReference(u.href);if(found){video=found;explicitVideoUrl=u.href;break}}
+    if(!video){const og=findMetaContent(raw,["og:video","og:video:url","og:video:secure_url","twitter:player"]);if(og){try{const found=parseYouTubeReference(new URL(og,currentUrl).href);if(found){video=found;explicitVideoUrl=og}}catch{}}}
+    const isYT=Boolean(parseYouTubeReference(currentUrl));let transcript=isYT?await fetchYouTubeTranscriptFromHtml(raw):"";
+    if(!transcript&&video&&!isYT)transcript=await fetchYouTubeTranscriptById(video.video_id);
+    const pageText=decode(raw.replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi," ").replace(/<style\\b[^>]*>[\\s\\S]*?<\\/style>/gi," ").replace(/<noscript\\b[^>]*>[\\s\\S]*?<\\/noscript>/gi," ").replace(/<[^>]+>/g," ")).slice(0,12000);
+    const text=isYT?(transcript||(title+"\\nTranscrição pública não disponível. Não invente falas, citações ou timestamps.")):[pageText,transcript?"\\nTRANSCRIÇÃO DO VÍDEO INCORPORADO (legendas públicas):\\n"+transcript:""].join("\\n").slice(0,18000);
+    if(!isYT&&text.length<150)throw new Error("Não foi possível extrair texto suficiente da página.");
+    return {title:title||currentUrl,text,url:currentUrl,original_url:currentUrl,media_url:video?video.video_url:"",media_type:video?"video":imageUrl?"image":"link",image_url:imageUrl,video_id:video?video.video_id:"",video_start:video?video.video_start:0,video_source_url:explicitVideoUrl||(video?video.video_url:""),transcript_available:Boolean(transcript),transcript};
   }
   throw new Error("Não foi possível abrir a fonte.");
-}
-
-
-async function summarizeExtractedSource(source) {
- const prompt=[
-  "Organize esta fonte em português brasileiro para um mural público. Use exclusivamente o texto extraído; nunca invente nomes, datas, números de processos, leis, sentenças ou andamento.",
-  "Diferencie alegação, denúncia, investigação, decisão provisória, condenação, absolvição, soltura, anulação e recurso. A menção de uma pessoa não implica culpa. Não decida verdadeiro/falso/fake com base apenas num resumo.",
-  "Retorne JSON válido com title (até 250 caracteres), category (Política, Justiça e processos, Segurança, Economia, Saúde, Educação, Meio ambiente, Trabalho, Direitos e cidadania, Eleições, Governo e medidas ou Outros), event_date (AAAA-MM-DD só se explícita), people (até 6), organizations (até 6), cases (até 4 processos explícitos), legal_status (até 220 caracteres), summary (2-4 frases neutras até 850 caracteres), key_points (até 5 itens), source_limitations (até 300 caracteres). Use strings/arrays vazios quando não houver dado explícito.",
-  "URL: "+source.url,"Título HTML: "+(source.title||"(ausente)"),"Texto extraído:\n"+source.text
- ].join("\n\n");
- const {payload}=await generateGeminiJson(prompt);
- const raw=payload?.candidates?.[0]?.content?.parts?.map((p)=>p.text||"").join("").trim();
- if(!raw)throw new Error("Gemini retornou resposta vazia.");
- const p=JSON.parse(raw),allowed=new Set(["Política","Justiça e processos","Segurança","Economia","Saúde","Educação","Meio ambiente","Trabalho","Direitos e cidadania","Eleições","Governo e medidas","Outros"]);
- const list=(v,n)=>Array.isArray(v)?v.slice(0,n).map((x)=>cleanString(x,{max:180})).filter(Boolean):[];
- return {
-  title:cleanString(p.title||source.title||source.url,{max:250})||source.url,
-  category:allowed.has(p.category)?p.category:"Outros",
-  event_date:isIsoDate(String(p.event_date||""))?String(p.event_date):"",
-  people:list(p.people,6),organizations:list(p.organizations,6),cases:list(p.cases,4),
-  legal_status:cleanString(p.legal_status||"",{max:220})||"",
-  summary:cleanString(p.summary||"",{max:850})||"Texto extraído, sem resumo confiável.",
-  key_points:list(p.key_points,5),source_limitations:cleanString(p.source_limitations||"",{max:300})||""
- };
-}
-function formatStructuredSourceSummary(r) {
- return [
-  "Categoria: "+r.category,r.event_date?"Data mencionada: "+r.event_date:"",
-  r.people.length?"Pessoas citadas: "+r.people.join(", "):"",
-  r.organizations.length?"Instituições citadas: "+r.organizations.join(", "):"",
-  r.cases.length?"Casos e processos: "+r.cases.join("; "):"",
-  r.legal_status?"Andamento mencionado pela fonte: "+r.legal_status:"",
-  "Resumo da fonte: "+r.summary,...r.key_points.map((x)=>"Ponto relevante: "+x),
-  r.source_limitations?"Limites do material: "+r.source_limitations:"",
-  "Nota: resumo automatizado; não é veredito e não substitui a fonte original."
- ].filter(Boolean).join("\n").slice(0,3500);
 }
 
 const processSourcesLimiter = rateLimit({
