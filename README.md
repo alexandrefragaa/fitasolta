@@ -72,7 +72,7 @@ node --check src/server.js
 
 ## Variáveis de ambiente
 
-Obrigatórias: `HOST_TURSO`, `TOKEN_TURSO`, `SESSION_SECRET` (segredo aleatório com 32+ caracteres) e `ADMIN_PASSWORD_HASH` (hash bcrypt).
+Obrigatórias: `SESSION_SECRET` (segredo aleatório com 32+ caracteres), `ADMIN_PASSWORD_HASH` (hash bcrypt) e um par correspondente de banco Turso/libSQL: `HOST_TURSO` + `TOKEN_TURSO` ou `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN`. Para o Preview, use um banco de teste separado; não compartilhe o mesmo banco de produção.
 
 Opcionais: `GEMINI_API_KEY`, `GEMINI_MODEL`, `OPENAI_API_KEY` e `OPENAI_MODEL`. As chaves ficam em **Vercel → Project Settings → Environment Variables**, nunca no Git ou no frontend. `GEMINI_API_KEY` habilita a revisão de afirmações pelo Gemini; o servidor usa OpenAI como fallback se só houver `OPENAI_API_KEY`.
 
