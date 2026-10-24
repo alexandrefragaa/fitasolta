@@ -136,6 +136,48 @@ async function initializeDatabase() {
       sess TEXT NOT NULL,
       expires INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS claims (
+      id TEXT PRIMARY KEY,
+      speaker TEXT NOT NULL,
+      video_url TEXT NOT NULL,
+      source_kind TEXT NOT NULL DEFAULT 'video_original',
+      timestamp TEXT NOT NULL DEFAULT '',
+      quote TEXT NOT NULL,
+      context TEXT NOT NULL DEFAULT '',
+      claim_type TEXT NOT NULL DEFAULT 'factual',
+      verdict TEXT NOT NULL DEFAULT 'nao_verificada',
+      explanation TEXT NOT NULL DEFAULT '',
+      supporting_evidence TEXT NOT NULL DEFAULT '',
+      contradictory_evidence TEXT NOT NULL DEFAULT '',
+      journalism_checks TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'draft',
+      created_by TEXT NOT NULL DEFAULT 'admin',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      published_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS claim_sources (
+      id TEXT PRIMARY KEY, claim_id TEXT NOT NULL, source_type TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '', url TEXT NOT NULL, publisher TEXT NOT NULL DEFAULT '',
+      published_date TEXT NOT NULL DEFAULT '', excerpt TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (claim_id) REFERENCES claims(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS claim_reviews (
+      id TEXT PRIMARY KEY, claim_id TEXT NOT NULL, model TEXT NOT NULL DEFAULT 'manual',
+      input_snapshot TEXT NOT NULL, output_json TEXT NOT NULL,
+      reviewer_decision TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, reviewed_at TEXT,
+      FOREIGN KEY (claim_id) REFERENCES claims(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS claim_relations (
+      id TEXT PRIMARY KEY, claim_id TEXT NOT NULL, related_claim_id TEXT NOT NULL,
+      relation_type TEXT NOT NULL DEFAULT 'related', explanation TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (claim_id) REFERENCES claims(id) ON DELETE CASCADE,
+      FOREIGN KEY (related_claim_id) REFERENCES claims(id) ON DELETE CASCADE,
+      CHECK (claim_id <> related_claim_id)
+    );
   `);
 
   async function ensureColumn(table, column, definition) {
@@ -146,6 +188,21 @@ async function initializeDatabase() {
   }
 
   // Migrações aditivas para preservar esquemas já existentes.
+  const claimMigrations = {
+    claims: {
+      source_kind: "TEXT NOT NULL DEFAULT 'video_original'",
+      timestamp: "TEXT NOT NULL DEFAULT ''",
+      supporting_evidence: "TEXT NOT NULL DEFAULT ''",
+      contradictory_evidence: "TEXT NOT NULL DEFAULT ''",
+      journalism_checks: "TEXT NOT NULL DEFAULT '[]'"
+    }
+  };
+  for (const [table, columns] of Object.entries(claimMigrations)) {
+    for (const [column, definition] of Object.entries(columns)) {
+      await ensureColumn(table, column, definition);
+    }
+  }
+
   const migrations = {
     entities: {
       type: "TEXT NOT NULL DEFAULT 'other'",
@@ -682,6 +739,223 @@ app.delete("/api/relationships/:id", requireCsrf, requireAdmin, asyncHandler(asy
   if (!result.changes) return res.status(404).json({ error: "Relação não encontrada." });
   await audit(req, "relationship_deleted", "relationship", req.params.id);
   res.json({ ok: true });
+}));
+
+
+/* Fichas de checagem: privadas por padrão e publicadas somente após aprovação editorial. */
+const claimVerdicts = new Set(["verdadeira","falsa","enganosa","fora_de_contexto","inconclusiva","opiniao_previsao","nao_verificada"]);
+const claimStatuses = new Set(["draft","in_review","approved","published","rejected"]);
+const claimSourceTypes = new Set(["jornalistica","primaria","video_original","publicacao_x","outra"]);
+const claimRelations = new Set(["related","supports","contradicts","same_topic","contextualizes"]);
+const publicClaimColumns = "id,speaker,video_url,source_kind,timestamp,quote,context,claim_type,verdict,explanation,supporting_evidence,contradictory_evidence,journalism_checks,status,created_at,updated_at,published_at";
+
+function safeJsonArray(value) {
+  try {
+    const parsed = JSON.parse(String(value || "[]"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+function parseSourceUrls(value) {
+  if (!Array.isArray(value)) return { urls: [], error: null };
+  if (value.length > 20) return { urls: [], error: "Cada tipo de fonte aceita no máximo 20 URLs." };
+  const urls = [];
+  for (const item of value) {
+    if (typeof item !== "string" || !item.trim()) continue;
+    const url = normalizeHttpUrl(item.trim());
+    if (!url) return { urls: [], error: "Uma das fontes contém URL inválida. Use somente HTTP ou HTTPS." };
+    if (!urls.includes(url)) urls.push(url);
+  }
+  return { urls, error: null };
+}
+
+app.get("/api/claims", asyncHandler(async (req, res) => {
+  const rows = await db.prepare("SELECT " + publicClaimColumns + " FROM claims WHERE status='published' ORDER BY published_at DESC LIMIT 200").all();
+  res.set("Cache-Control","no-store").json({ claims: rows.map(row => ({ ...row, journalism_checks: safeJsonArray(row.journalism_checks) })) });
+}));
+
+app.get("/api/claims/:id", asyncHandler(async (req, res) => {
+  const claim = await db.prepare("SELECT " + publicClaimColumns + " FROM claims WHERE id=? AND status='published'").get(req.params.id);
+  if (!claim) return res.status(404).json({ error: "Checagem publicada não encontrada." });
+  const sources = await db.prepare("SELECT id,source_type,title,url,publisher,published_date,excerpt,notes,created_at FROM claim_sources WHERE claim_id=? ORDER BY created_at").all(claim.id);
+  res.set("Cache-Control","no-store").json({ claim: { ...claim, journalism_checks: safeJsonArray(claim.journalism_checks) }, sources });
+}));
+
+app.get("/api/admin/claims", requireAdmin, asyncHandler(async (req, res) => {
+  const status = typeof req.query.status === "string" && claimStatuses.has(req.query.status) ? req.query.status : "";
+  const rows = status
+    ? await db.prepare("SELECT " + publicClaimColumns + " FROM claims WHERE status=? ORDER BY updated_at DESC LIMIT 500").all(status)
+    : await db.prepare("SELECT " + publicClaimColumns + " FROM claims ORDER BY updated_at DESC LIMIT 500").all();
+  res.set("Cache-Control","no-store").json({ claims: rows.map(row => ({ ...row, journalism_checks: safeJsonArray(row.journalism_checks) })) });
+}));
+
+app.post("/api/admin/claims", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const speaker = cleanString(body.speaker, { min: 1, max: 120, required: true });
+  const videoUrl = normalizeHttpUrl(body.video_url || "");
+  const sourceKind = claimSourceTypes.has(body.source_kind) ? body.source_kind : "video_original";
+  const timestamp = cleanString(body.timestamp || "", { max: 20 });
+  const quote = cleanString(body.quote, { min: 1, max: 3000, required: true });
+  const context = cleanString(body.context, { min: 1, max: 3000, required: true });
+  const claimType = cleanString(body.claim_type || "factual", { min: 1, max: 100, required: true });
+  const verdict = claimVerdicts.has(body.verdict) ? body.verdict : "nao_verificada";
+  const explanation = cleanString(body.explanation || "", { max: 4000 });
+  const supporting = cleanString(body.supporting_evidence || "", { max: 3000 });
+  const contradictory = cleanString(body.contradictory_evidence || "", { max: 3000 });
+  const timestampValid = sourceKind === "publicacao_x"
+    ? (!timestamp || /^([0-9]{1,2}:)?[0-5][0-9]:[0-5][0-9]$/.test(timestamp))
+    : /^([0-9]{1,2}:)?[0-5][0-9]:[0-5][0-9]$/.test(timestamp || "");
+  if (!speaker || !videoUrl || timestamp === null || !quote || !context || !claimType || !timestampValid) {
+    return res.status(400).json({ error: "Confira pessoa, material, fala literal, contexto e timestamp. Vídeos exigem timestamp válido; publicações no X não." });
+  }
+  if ([explanation,supporting,contradictory].some(value => value === null)) {
+    return res.status(400).json({ error: "Um campo de evidência ou explicação excede o tamanho permitido." });
+  }
+  const journalism = parseSourceUrls(body.journalism_checks);
+  const primary = parseSourceUrls(body.primary_sources);
+  if (journalism.error || primary.error) return res.status(400).json({ error: journalism.error || primary.error });
+  const id = crypto.randomUUID();
+  const statements = [{
+    sql: "INSERT INTO claims (id,speaker,video_url,source_kind,timestamp,quote,context,claim_type,verdict,explanation,supporting_evidence,contradictory_evidence,journalism_checks,status,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'draft','admin')",
+    args: [id,speaker,videoUrl,sourceKind,timestamp,quote,context,claimType,verdict,explanation,supporting,contradictory,JSON.stringify(journalism.urls)]
+  }];
+  for (const url of journalism.urls) statements.push({ sql: "INSERT INTO claim_sources (id,claim_id,source_type,url) VALUES (?,?,?,?)", args: [crypto.randomUUID(),id,"jornalistica",url] });
+  for (const url of primary.urls) statements.push({ sql: "INSERT INTO claim_sources (id,claim_id,source_type,url) VALUES (?,?,?,?)", args: [crypto.randomUUID(),id,"primaria",url] });
+  await db.batch(statements);
+  await audit(req,"claim_created","claim",id);
+  res.status(201).set("Cache-Control","no-store").json({ id, status: "draft" });
+}));
+
+
+app.put("/api/admin/claims/:id", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const existing = await db.prepare("SELECT id,status FROM claims WHERE id=?").get(req.params.id);
+  if (!existing) return res.status(404).json({ error: "Ficha não encontrada." });
+  if (existing.status === "published" || existing.status === "approved") {
+    return res.status(409).json({ error: "Uma ficha aprovada ou publicada precisa de uma nova revisão editorial antes de ser editada." });
+  }
+  const speaker = cleanString(body.speaker, { min: 1, max: 120, required: true });
+  const videoUrl = normalizeHttpUrl(body.video_url || "");
+  const sourceKind = claimSourceTypes.has(body.source_kind) ? body.source_kind : "video_original";
+  const timestamp = cleanString(body.timestamp || "", { max: 20 });
+  const quote = cleanString(body.quote, { min: 1, max: 3000, required: true });
+  const context = cleanString(body.context, { min: 1, max: 3000, required: true });
+  const claimType = cleanString(body.claim_type || "factual", { min: 1, max: 100, required: true });
+  const verdict = claimVerdicts.has(body.verdict) ? body.verdict : "nao_verificada";
+  const explanation = cleanString(body.explanation || "", { max: 4000 });
+  const supporting = cleanString(body.supporting_evidence || "", { max: 3000 });
+  const contradictory = cleanString(body.contradictory_evidence || "", { max: 3000 });
+  const timestampValid = sourceKind === "publicacao_x"
+    ? (!timestamp || /^([0-9]{1,2}:)?[0-5][0-9]:[0-5][0-9]$/.test(timestamp))
+    : /^([0-9]{1,2}:)?[0-5][0-9]:[0-5][0-9]$/.test(timestamp || "");
+  if (!speaker || !videoUrl || timestamp === null || !quote || !context || !claimType || !timestampValid) {
+    return res.status(400).json({ error: "Confira pessoa, material, fala literal, contexto e timestamp." });
+  }
+  if ([explanation,supporting,contradictory].some(value => value === null)) {
+    return res.status(400).json({ error: "Um campo de evidência ou explicação excede o tamanho permitido." });
+  }
+  const journalism = parseSourceUrls(body.journalism_checks);
+  const primary = parseSourceUrls(body.primary_sources);
+  if (journalism.error || primary.error) return res.status(400).json({ error: journalism.error || primary.error });
+  const statements = [
+    {
+      sql: "UPDATE claims SET speaker=?,video_url=?,source_kind=?,timestamp=?,quote=?,context=?,claim_type=?,verdict=?,explanation=?,supporting_evidence=?,contradictory_evidence=?,journalism_checks=?,status='draft',published_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+      args: [speaker,videoUrl,sourceKind,timestamp,quote,context,claimType,verdict,explanation,supporting,contradictory,JSON.stringify(journalism.urls),existing.id]
+    },
+    { sql: "DELETE FROM claim_sources WHERE claim_id=?", args: [existing.id] }
+  ];
+  for (const url of journalism.urls) statements.push({ sql: "INSERT INTO claim_sources (id,claim_id,source_type,url) VALUES (?,?,?,?)", args: [crypto.randomUUID(),existing.id,"jornalistica",url] });
+  for (const url of primary.urls) statements.push({ sql: "INSERT INTO claim_sources (id,claim_id,source_type,url) VALUES (?,?,?,?)", args: [crypto.randomUUID(),existing.id,"primaria",url] });
+  await db.batch(statements);
+  await audit(req,"claim_updated","claim",existing.id);
+  res.set("Cache-Control","no-store").json({ id: existing.id, status: "draft" });
+}));
+
+app.get("/api/admin/claims/:id", requireAdmin, asyncHandler(async (req, res) => {
+  const claim = await db.prepare("SELECT * FROM claims WHERE id=?").get(req.params.id);
+  if (!claim) return res.status(404).json({ error: "Ficha não encontrada." });
+  const results = await Promise.all([
+    db.prepare("SELECT * FROM claim_sources WHERE claim_id=? ORDER BY created_at").all(claim.id),
+    db.prepare("SELECT id,model,output_json,reviewer_decision,created_at,reviewed_at FROM claim_reviews WHERE claim_id=? ORDER BY created_at DESC").all(claim.id),
+    db.prepare("SELECT r.*,c.speaker,c.quote AS related_quote FROM claim_relations r JOIN claims c ON c.id=r.related_claim_id WHERE r.claim_id=?").all(claim.id)
+  ]);
+  res.set("Cache-Control","no-store").json({ claim: { ...claim, journalism_checks: safeJsonArray(claim.journalism_checks) }, sources: results[0], reviews: results[1], relations: results[2] });
+}));
+
+app.post("/api/admin/claims/:id/sources", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const claim = await db.prepare("SELECT id,status FROM claims WHERE id=?").get(req.params.id);
+  if (!claim) return res.status(404).json({ error: "Ficha não encontrada." });
+  if (claim.status === "published") return res.status(409).json({ error: "Uma ficha publicada não pode ser alterada sem reabrir a revisão editorial." });
+  const sourceType = claimSourceTypes.has(body.source_type) ? body.source_type : "outra";
+  const url = normalizeHttpUrl(body.url || "");
+  const title = cleanString(body.title || "", { max: 300 });
+  const publisher = cleanString(body.publisher || "", { max: 200 });
+  const publishedDate = cleanString(body.published_date || "", { max: 30 });
+  const excerpt = cleanString(body.excerpt || "", { max: 12000 });
+  const notes = cleanString(body.notes || "", { max: 3000 });
+  if (!url) return res.status(400).json({ error: "A fonte precisa ter URL HTTP ou HTTPS válida." });
+  if ([title,publisher,publishedDate,excerpt,notes].some(value => value === null)) return res.status(400).json({ error: "Um dos campos da fonte excede o tamanho permitido." });
+  const id = crypto.randomUUID();
+  await db.prepare("INSERT INTO claim_sources (id,claim_id,source_type,title,url,publisher,published_date,excerpt,notes) VALUES (?,?,?,?,?,?,?,?,?)").run(id,claim.id,sourceType,title,url,publisher,publishedDate,excerpt,notes);
+  await audit(req,"claim_source_added","claim_source",id);
+  res.status(201).json({ id });
+}));
+
+app.post("/api/admin/claims/:id/reviews", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
+  const claim = await db.prepare("SELECT * FROM claims WHERE id=?").get(req.params.id);
+  if (!claim) return res.status(404).json({ error: "Ficha não encontrada." });
+  if (claim.status === "published") return res.status(409).json({ error: "A checagem publicada precisa ser reaberta antes de uma nova revisão." });
+  const output = req.body?.output;
+  if (!output || typeof output !== "object" || Array.isArray(output)) return res.status(400).json({ error: "Informe o resultado estruturado da revisão." });
+  const model = cleanString(req.body?.model || "manual", { min: 1, max: 100, required: true });
+  if (!model) return res.status(400).json({ error: "Nome da revisão inválido." });
+  const sources = await db.prepare("SELECT source_type,title,url,excerpt,notes FROM claim_sources WHERE claim_id=?").all(claim.id);
+  const snapshot = JSON.stringify({ speaker: claim.speaker, quote: claim.quote, context: claim.context, source_kind: claim.source_kind, timestamp: claim.timestamp, sources });
+  const id = crypto.randomUUID();
+  await db.prepare("INSERT INTO claim_reviews (id,claim_id,model,input_snapshot,output_json) VALUES (?,?,?,?,?)").run(id,claim.id,model,snapshot,JSON.stringify(output));
+  await db.prepare("UPDATE claims SET status='in_review',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status IN ('draft','in_review','rejected')").run(claim.id);
+  await audit(req,"claim_review_added","claim_review",id);
+  res.status(201).json({ id, status: "in_review" });
+}));
+
+app.post("/api/admin/claims/:id/decision", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
+  const decision = req.body?.decision;
+  if (!["approved","rejected","published"].includes(decision)) return res.status(400).json({ error: "Decisão editorial inválida." });
+  const claim = await db.prepare("SELECT * FROM claims WHERE id=?").get(req.params.id);
+  if (!claim) return res.status(404).json({ error: "Ficha não encontrada." });
+  if (claim.status === "published" && decision !== "published") {
+    return res.status(409).json({ error: "Uma checagem publicada não pode ser alterada por esta ação. Registre uma nova revisão editorial." });
+  }
+  if (decision === "approved" && claim.status !== "in_review") {
+    return res.status(409).json({ error: "A checagem precisa passar pela etapa de revisão antes da aprovação." });
+  }
+  if (decision === "published" && claim.status !== "approved") {
+    return res.status(409).json({ error: "A ficha precisa ser aprovada em uma etapa anterior antes da publicação." });
+  }
+  if (decision === "approved") {
+    const source = await db.prepare("SELECT id FROM claim_sources WHERE claim_id=? LIMIT 1").get(claim.id);
+    if (!claim.quote || !claim.context || !source) return res.status(409).json({ error: "Antes de aprovar, preencha a fala e o contexto e cadastre ao menos uma fonte verificável." });
+  }
+  await db.prepare("UPDATE claims SET status=?,published_at=CASE WHEN ?='published' THEN CURRENT_TIMESTAMP ELSE NULL END,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(decision,decision,claim.id);
+  await audit(req,"claim_" + decision,"claim",claim.id);
+  res.set("Cache-Control","no-store").json({ id: claim.id, status: decision });
+}));
+
+app.post("/api/admin/claims/:id/relations", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  if (!claimRelations.has(body.relation_type)) return res.status(400).json({ error: "Tipo de relação inválido." });
+  if (typeof body.related_claim_id !== "string" || body.related_claim_id === req.params.id) return res.status(400).json({ error: "Uma ficha não pode se relacionar consigo mesma." });
+  const pair = await Promise.all([
+    db.prepare("SELECT id FROM claims WHERE id=?").get(req.params.id),
+    db.prepare("SELECT id FROM claims WHERE id=?").get(body.related_claim_id)
+  ]);
+  if (!pair[0] || !pair[1]) return res.status(404).json({ error: "Uma das fichas não foi encontrada." });
+  const explanation = cleanString(body.explanation || "", { max: 1500 });
+  if (explanation === null) return res.status(400).json({ error: "A explicação da relação é muito longa." });
+  const id = crypto.randomUUID();
+  await db.prepare("INSERT INTO claim_relations (id,claim_id,related_claim_id,relation_type,explanation) VALUES (?,?,?,?,?)").run(id,pair[0].id,pair[1].id,body.relation_type,explanation);
+  await audit(req,"claim_relation_added","claim_relation",id);
+  res.status(201).json({ id });
 }));
 
 /* Fontes externas: URLs distintas referenciadas por entidades e relações. */
