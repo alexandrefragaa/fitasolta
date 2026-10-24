@@ -1143,7 +1143,7 @@ function parseCaseBody(body) {
   if (!title || !summary || [jurisdiction,agency,officialReference].some((v) => v === null)) return { error: "Informe título, resumo e campos com tamanho válido." };
   if (sourceUrl === null) return { error: "A fonte do caso precisa ser uma URL HTTP(S) válida." };
   if ([openedAt,lastCheckedAt,nextReviewAt].some((v) => v === null)) return { error: "As datas do caso devem estar no formato AAAA-MM-DD." };
-  return { value: { title,summary,category,jurisdiction,agency,official_reference:officialReference,source_url:sourceUrl,status,opened_at:openedAt || "",last_checked_at:lastCheckedAt || "",next_review_at:nextReviewAt || "" } };
+  return { value: { title,summary,category,jurisdiction,responsible_agency:agency,official_reference:officialReference,source_url:sourceUrl,status,opened_at:openedAt || "",last_checked_at:lastCheckedAt || "",next_review_at:nextReviewAt || "" } };
 }
 
 app.get("/api/cases", asyncHandler(async (req, res) => {
