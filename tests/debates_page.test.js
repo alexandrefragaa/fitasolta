@@ -64,11 +64,10 @@ test("editorial decisions are recorded against the latest review", () => {
 });
 
 test("related-claim UI is present and public relations filter unpublished claims", () => {
-  const html = readFileSync(new URL("../public/debates.html", import.meta.url), "utf8");
   const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
-  assert.match(html, /Relacionar com outra checagem/);
-  assert.match(html, /Salvar relação/);
-  assert.match(html, /Checagens relacionadas/);
+  assert.match(debateScript, /Relacionar com outra checagem/);
+  assert.match(debateScript, /Salvar relação/);
+  assert.match(debateScript, /Checagens relacionadas/);
   assert.match(server, /c\.status='published'/);
   assert.match(server, /claim_relations/);
 });
