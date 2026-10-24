@@ -40,6 +40,10 @@ jobs:
           node --check public/js/app.js
           node --check public/js/debates.js
           node --check public/js/investigations.js
+          node --check public/js/comparar.js
+          node --check public/js/votacao.js
+          node --check public/js/revisao.js
+          node --check public/js/analytics.js
           node --check src/js/app.js
 
       - name: Run tests
