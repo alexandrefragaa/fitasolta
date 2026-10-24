@@ -254,6 +254,13 @@
    }
    if(detail.claim.supporting_evidence)box.append(makeText("p","Evidência favorável: "+detail.claim.supporting_evidence));
    if(detail.claim.contradictory_evidence)box.append(makeText("p","Limitações/evidências contrárias: "+detail.claim.contradictory_evidence));
+   if((detail.relations||[]).length) {
+    box.append(makeText("h4","Checagens relacionadas"));
+    for(const relation of detail.relations) {
+     box.append(makeText("p",relation.relation_type+" · "+relation.speaker+": “"+relation.quote+"”"));
+     if(relation.explanation)box.append(makeText("p",relation.explanation,"status-note"));
+    }
+   }
    card.append(box);button.textContent="Ocultar fontes";
   } catch(error) {
    statusNode().textContent="Não foi possível carregar as fontes da checagem: "+error.message;
