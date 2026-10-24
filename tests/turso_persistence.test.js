@@ -385,6 +385,10 @@ test("libSQL persistence survives restart and keeps the editorial publication ga
   });
   assert.equal(secondClaim.response.status, 201, JSON.stringify(secondClaim.body));
   const secondClaimId = secondClaim.body.id;
+  const linkClaim = await requestJson(baseUrl, "/api/admin/cases/" + caseId + "/claims", {
+    method: "POST", cookie, csrf, body: { claim_id: secondClaimId }
+  });
+  assert.equal(linkClaim.response.status, 200, JSON.stringify(linkClaim.body));
   const secondReview = await requestJson(baseUrl, "/api/admin/claims/" + secondClaimId + "/reviews", {
     method: "POST", cookie, csrf,
     body: { model: "automated-test", output: { verdict: "inconclusiva", note: "Test only." } }
