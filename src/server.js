@@ -193,6 +193,85 @@ async function initializeDatabase() {
       FOREIGN KEY (related_claim_id) REFERENCES claims(id) ON DELETE CASCADE,
       CHECK (claim_id <> related_claim_id)
     );
+    CREATE TABLE IF NOT EXISTS cases (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL DEFAULT 'outro',
+      jurisdiction TEXT NOT NULL DEFAULT '',
+      responsible_agency TEXT NOT NULL DEFAULT '',
+      official_reference TEXT NOT NULL DEFAULT '',
+      source_url TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'triagem',
+      opened_at TEXT,
+      last_checked_at TEXT,
+      next_review_at TEXT,
+      editorial_status TEXT NOT NULL DEFAULT 'draft',
+      created_by TEXT NOT NULL DEFAULT 'admin',
+      updated_by TEXT NOT NULL DEFAULT 'admin',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      published_at TEXT,
+      CHECK (editorial_status IN ('draft','in_review','approved','published','rejected','withdrawn'))
+    );
+    CREATE TABLE IF NOT EXISTS case_entities (
+      id TEXT PRIMARY KEY,
+      case_id TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      role_description TEXT NOT NULL DEFAULT '',
+      valid_from TEXT,
+      valid_to TEXT,
+      source_url TEXT NOT NULL DEFAULT '',
+      editorial_status TEXT NOT NULL DEFAULT 'draft',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      published_at TEXT,
+      FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE,
+      FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE,
+      CHECK (editorial_status IN ('draft','in_review','approved','published','rejected','withdrawn'))
+    );
+    CREATE TABLE IF NOT EXISTS case_events (
+      id TEXT PRIMARY KEY,
+      case_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      event_date TEXT,
+      document_date TEXT,
+      published_date TEXT,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      source_url TEXT NOT NULL DEFAULT '',
+      verification_status TEXT NOT NULL DEFAULT 'not_checked',
+      editorial_status TEXT NOT NULL DEFAULT 'draft',
+      created_by TEXT NOT NULL DEFAULT 'admin',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      published_at TEXT,
+      FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE,
+      CHECK (verification_status IN ('not_checked','verified','disputed','corrected')),
+      CHECK (editorial_status IN ('draft','in_review','approved','published','rejected','withdrawn'))
+    );
+    CREATE TABLE IF NOT EXISTS video_clips (
+      id TEXT PRIMARY KEY,
+      case_id TEXT,
+      claim_id TEXT,
+      title TEXT NOT NULL,
+      video_url TEXT NOT NULL,
+      start_timestamp TEXT NOT NULL,
+      end_timestamp TEXT NOT NULL,
+      quote TEXT NOT NULL DEFAULT '',
+      context_before TEXT NOT NULL DEFAULT '',
+      context_after TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      editorial_status TEXT NOT NULL DEFAULT 'draft',
+      created_by TEXT NOT NULL DEFAULT 'admin',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      published_at TEXT,
+      FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE SET NULL,
+      FOREIGN KEY (claim_id) REFERENCES claims(id) ON DELETE SET NULL,
+      CHECK (editorial_status IN ('draft','in_review','approved','published','rejected','withdrawn'))
+    );
   `);
 
   async function ensureColumn(table, column, definition) {
@@ -209,7 +288,8 @@ async function initializeDatabase() {
       timestamp: "TEXT NOT NULL DEFAULT ''",
       supporting_evidence: "TEXT NOT NULL DEFAULT ''",
       contradictory_evidence: "TEXT NOT NULL DEFAULT ''",
-      journalism_checks: "TEXT NOT NULL DEFAULT '[]'"
+      journalism_checks: "TEXT NOT NULL DEFAULT '[]'",
+      case_id: "TEXT"
     }
   };
   for (const [table, columns] of Object.entries(claimMigrations)) {
@@ -225,8 +305,14 @@ async function initializeDatabase() {
       source_url: "TEXT NOT NULL DEFAULT ''",
       source_date: "TEXT NOT NULL DEFAULT ''",
       evidence_status: "TEXT NOT NULL DEFAULT 'nao_verificado'",
+      editorial_status: "TEXT NOT NULL DEFAULT 'published'",
       created_at: "TEXT",
       updated_at: "TEXT"
+    },
+    claim_relations: {
+      editorial_status: "TEXT NOT NULL DEFAULT 'published'",
+      updated_at: "TEXT",
+      published_at: "TEXT"
     },
     relationships: {
       source_id: "TEXT NOT NULL DEFAULT ''",
@@ -267,6 +353,14 @@ async function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_relationships_target ON relationships(target_id);
     CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
+    CREATE INDEX IF NOT EXISTS idx_entities_editorial_status ON entities(editorial_status);
+    CREATE INDEX IF NOT EXISTS idx_cases_editorial_status ON cases(editorial_status, status);
+    CREATE INDEX IF NOT EXISTS idx_case_entities_case ON case_entities(case_id, editorial_status);
+    CREATE INDEX IF NOT EXISTS idx_case_events_timeline ON case_events(case_id, event_date, editorial_status);
+    CREATE INDEX IF NOT EXISTS idx_video_clips_status ON video_clips(editorial_status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_video_clips_case ON video_clips(case_id);
+    CREATE INDEX IF NOT EXISTS idx_claims_case ON claims(case_id, status);
+    CREATE INDEX IF NOT EXISTS idx_claim_relations_status ON claim_relations(editorial_status, relation_type);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires);
   `);
 }
@@ -642,7 +736,7 @@ app.post("/api/admin/investigate-link", requireCsrf, requireAdmin, asyncHandler(
 /* Entidades */
 const selectEntities = db.prepare(`
   SELECT id, name, type, description, source_url, source_date, evidence_status, created_at, updated_at
-  FROM entities ORDER BY created_at DESC LIMIT 500
+  FROM entities WHERE editorial_status='published' ORDER BY created_at DESC LIMIT 500
 `);
 const insertEntity = db.prepare(`
   INSERT INTO entities (id, name, type, description, source_url, source_date, evidence_status)
@@ -820,7 +914,7 @@ app.get("/api/claims/:id", asyncHandler(async (req, res) => {
     db.prepare("SELECT id,source_type,title,url,publisher,published_date,excerpt,notes,created_at FROM claim_sources WHERE claim_id=? ORDER BY created_at").all(claim.id),
     db.prepare(`SELECT r.relation_type,r.explanation,c.id,c.speaker,c.quote,c.verdict
       FROM claim_relations r JOIN claims c ON c.id=r.related_claim_id
-      WHERE r.claim_id=? AND c.status='published' ORDER BY r.created_at DESC LIMIT 100`).all(claim.id)
+      WHERE r.claim_id=? AND r.editorial_status='published' AND c.status='published' ORDER BY r.created_at DESC LIMIT 100`).all(claim.id)
   ]);
   res.set("Cache-Control","no-store").json({
     claim: { ...claim, journalism_checks: safeJsonArray(claim.journalism_checks) },
@@ -1005,7 +1099,8 @@ app.post("/api/admin/claims/:id/relations", requireCsrf, requireAdmin, asyncHand
   const explanation = cleanString(body.explanation || "", { max: 1500 });
   if (explanation === null) return res.status(400).json({ error: "A explicação da relação é muito longa." });
   const id = crypto.randomUUID();
-  await db.prepare("INSERT INTO claim_relations (id,claim_id,related_claim_id,relation_type,explanation) VALUES (?,?,?,?,?)").run(id,pair[0].id,pair[1].id,body.relation_type,explanation);
+  if (body.relation_type === "contradicts" && !explanation) return res.status(400).json({ error: "Explique com precisão o ponto de contradição; não basta que duas falas sejam diferentes." });
+  await db.prepare("INSERT INTO claim_relations (id,claim_id,related_claim_id,relation_type,explanation,editorial_status,updated_at) VALUES (?,?,?,?,?,'draft',CURRENT_TIMESTAMP)").run(id,pair[0].id,pair[1].id,body.relation_type,explanation);
   await audit(req,"claim_relation_added","claim_relation",id);
   res.status(201).json({ id });
 }));
