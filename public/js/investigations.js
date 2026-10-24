@@ -284,7 +284,15 @@
     claimsCache = claimData.claims || [];
     renderAdminCases(casesCache);
     renderAdminPeople(peopleCache);
-    renderAdminCaseDetails(casesCache);
+    const detailedCases = await Promise.all(casesCache.map(async (item) => {
+      try {
+        const detail = await api("/api/admin/cases/" + encodeURIComponent(item.id));
+        return { ...item, people: detail.people || [], events: detail.events || [], claims: detail.claims || [], clips: detail.clips || [] };
+      } catch {
+        return { ...item, people: [], events: [], claims: [], clips: [] };
+      }
+    }));
+    renderAdminCaseDetails(detailedCases);
     renderClips(clipData.clips || [], "#admin-clips");
     renderRelations(relationData.relations || []);
     fillSelect("#role-case", casesCache.map(x => ({value:x.id,label:x.title + " [" + statusLabel(x.editorial_status) + "]"})), "Selecione um caso");
