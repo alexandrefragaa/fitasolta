@@ -1211,6 +1211,32 @@ app.post("/api/admin/claims/:id/decision", requireCsrf, requireAdmin, asyncHandl
   res.json({ id: claim.id, status: decision });
 }));
 
+
+app.post("/api/admin/claims/:id/undo", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
+  const current = await db.prepare("SELECT * FROM claims WHERE id = ?").get(req.params.id);
+  if (!current) return res.status(404).json({ error: "Afirmação não encontrada." });
+  const previous = await db.prepare("SELECT id, snapshot_json FROM claim_versions WHERE claim_id = ? AND action <> 'undo' ORDER BY rowid DESC LIMIT 1").get(current.id);
+  if (!previous) return res.status(409).json({ error: "Não há uma versão anterior disponível para desfazer." });
+  let snapshot;
+  try { snapshot = JSON.parse(previous.snapshot_json); } catch { return res.status(500).json({ error: "A versão anterior está inválida." }); }
+  await recordClaimVersion(req, current, "undo");
+  await db.prepare("DELETE FROM claim_versions WHERE id = ?").run(previous.id);
+  await db.prepare(`
+    UPDATE claims SET speaker = ?, claim_date = ?, source_url = ?, source_type = ?, timestamp = ?,
+      quote = ?, context = ?, topic = ?, location = ?, claim_type = ?, verdict = ?, explanation = ?,
+      supporting_evidence = ?, contradictory_evidence = ?, status = ?, published_at = ?,
+      updated_at = CURRENT_TIMESTAMP WHERE id = ?
+  `).run(
+    snapshot.speaker, snapshot.claim_date || "", snapshot.source_url, snapshot.source_type, snapshot.timestamp || "",
+    snapshot.quote, snapshot.context || "", snapshot.topic || "outros", snapshot.location || "",
+    snapshot.claim_type || "factual", snapshot.verdict || "nao_verificada", snapshot.explanation || "",
+    snapshot.supporting_evidence || "", snapshot.contradictory_evidence || "", snapshot.status || "draft",
+    snapshot.published_at || null, current.id
+  );
+  await audit(req, "claim_undo", "claim", current.id);
+  res.json({ id: current.id, status: snapshot.status || "draft", message: "A última alteração da ficha foi desfeita." });
+}));
+
 app.post("/api/admin/claims/:id/relations", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
   const b = req.body || {};
   const relatedId = cleanString(b.related_claim_id, { min: 1, max: 100, required: true });
