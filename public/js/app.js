@@ -1110,6 +1110,11 @@
     // ainda não estivesse pronta. Não presumimos autenticação.
     if (state.isAdmin) {
     }
+
+    // Links administrativos podem abrir a tela de login diretamente.
+    if (window.location.hash === "#admin-open" && !state.isAdmin) {
+      elements.adminOpen?.click();
+    }
   }
 
   if (document.readyState === "loading") {
