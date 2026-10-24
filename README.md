@@ -17,7 +17,7 @@ O FitaSolta organiza entidades, relações e fontes externas com rastreabilidade
    ```
 
 2. Copie `.env.example` para `.env`.
-3. No painel do Turso, crie um token com permissão de leitura e escrita. Coloque a URL do banco em `HOST_TURSO` e o token em `TOKEN_TURSO`.
+3. No painel do Turso, crie um banco e um token com permissão de leitura e escrita. Configure `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN`. Os nomes legados `HOST_TURSO` e `TOKEN_TURSO` continuam aceitos como alternativa.
 4. Gere um segredo de sessão:
 
    ```bash
@@ -89,4 +89,4 @@ A API não transcreve automaticamente vídeos nem decide a veracidade com IA. A 
 
 ## Variáveis de ambiente na Vercel
 
-Configure `HOST_TURSO`, `TOKEN_TURSO`, `SESSION_SECRET` e `ADMIN_PASSWORD_HASH` em **Project Settings → Environment Variables**. Não publique os valores no GitHub. Após mudar variáveis de ambiente, faça um novo deploy.
+Configure `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `SESSION_SECRET` e `ADMIN_PASSWORD_HASH` em **Project Settings → Environment Variables**. Para Preview, use uma base de teste separada e um token próprio; não reutilize credenciais da base de produção num ambiente de teste. Não publique valores no GitHub. Após mudar variáveis de ambiente, faça um novo deploy.
