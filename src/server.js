@@ -1065,6 +1065,9 @@ app.post("/api/admin/claims/:id/decision", requireCsrf, requireAdmin, asyncHandl
   if (!["approved","rejected","published"].includes(decision)) return res.status(400).json({ error: "Decisão editorial inválida." });
   const claim = await db.prepare("SELECT * FROM claims WHERE id=?").get(req.params.id);
   if (!claim) return res.status(404).json({ error: "Ficha não encontrada." });
+  if (decision === "rejected" && claim.status !== "in_review") {
+    return res.status(409).json({ error: "Somente uma checagem em revisão pode ser rejeitada." });
+  }
   if (claim.status === "published" && decision !== "published") {
     return res.status(409).json({ error: "Uma checagem publicada não pode ser alterada por esta ação. Registre uma nova revisão editorial." });
   }
@@ -1206,6 +1209,7 @@ app.post("/api/admin/cases/:id/decision", requireCsrf, requireAdmin, asyncHandle
   if (!["in_review","approved","published","rejected","withdrawn"].includes(decision)) return res.status(400).json({ error:"Decisão editorial inválida." });
   const item = await db.prepare("SELECT * FROM cases WHERE id=?").get(req.params.id);
   if (!item) return res.status(404).json({ error:"Caso não encontrado." });
+  if (decision === "rejected" && item.editorial_status !== "in_review") return res.status(409).json({ error:"Somente um caso em revisão pode ser rejeitado." });
   if (decision === "in_review" && !["draft","rejected","in_review"].includes(item.editorial_status)) return res.status(409).json({ error:"O caso não pode voltar à revisão a partir desse estado." });
   if (decision === "approved" && item.editorial_status !== "in_review") return res.status(409).json({ error:"O caso precisa passar pela revisão antes da aprovação." });
   if (decision === "approved" && (!item.summary || !normalizeHttpUrl(item.source_url))) return res.status(409).json({ error:"Para aprovar, inclua resumo e ao menos uma fonte HTTP(S)." });
@@ -1263,6 +1267,7 @@ app.post("/api/admin/people/:id/decision", requireCsrf, requireAdmin, asyncHandl
   if (!["in_review","approved","published","rejected","withdrawn"].includes(decision)) return res.status(400).json({ error:"Decisão editorial inválida." });
   const person = await db.prepare("SELECT * FROM entities WHERE id=? AND lower(type) IN ('person','organization','institution')").get(req.params.id);
   if (!person) return res.status(404).json({ error:"Pessoa/organização não encontrada." });
+  if (decision === "rejected" && person.editorial_status !== "in_review") return res.status(409).json({ error:"Somente uma ficha em revisão pode ser rejeitada." });
   if (decision === "in_review" && !["draft","rejected","in_review"].includes(person.editorial_status)) return res.status(409).json({ error:"A ficha não pode voltar à revisão a partir desse estado." });
   if (decision === "approved" && person.editorial_status !== "in_review") return res.status(409).json({ error:"A ficha precisa passar pela revisão antes da aprovação." });
   if (decision === "approved" && (!person.description || !normalizeHttpUrl(person.source_url))) return res.status(409).json({ error:"Para aprovar a ficha, inclua descrição e fonte HTTP(S)." });
@@ -1299,6 +1304,7 @@ app.post("/api/admin/case-people/:id/decision", requireCsrf, requireAdmin, async
   if (!["in_review","approved","published","rejected","withdrawn"].includes(decision)) return res.status(400).json({ error:"Decisão editorial inválida." });
   const role = await db.prepare("SELECT ce.*,c.editorial_status AS case_status,e.editorial_status AS person_status FROM case_entities ce JOIN cases c ON c.id=ce.case_id JOIN entities e ON e.id=ce.entity_id WHERE ce.id=?").get(req.params.id);
   if (!role) return res.status(404).json({ error:"Vínculo de pessoa com caso não encontrado." });
+  if (decision === "rejected" && role.editorial_status !== "in_review") return res.status(409).json({ error:"Somente um vínculo em revisão pode ser rejeitado." });
   if (decision === "in_review" && !["draft","rejected","in_review"].includes(role.editorial_status)) return res.status(409).json({ error:"O vínculo não pode voltar à revisão a partir desse estado." });
   if (decision === "approved" && role.editorial_status !== "in_review") return res.status(409).json({ error:"O vínculo precisa passar pela revisão antes da aprovação." });
   if (decision === "approved" && (!normalizeHttpUrl(role.source_url) || !role.role)) return res.status(409).json({ error:"O papel exige uma fonte HTTP(S) e uma classificação explícita." });
@@ -1334,6 +1340,7 @@ app.post("/api/admin/case-events/:id/decision", requireCsrf, requireAdmin, async
   if (!["in_review","approved","published","rejected","withdrawn"].includes(decision)) return res.status(400).json({ error:"Decisão editorial inválida." });
   const event = await db.prepare("SELECT e.*,c.editorial_status AS case_status FROM case_events e JOIN cases c ON c.id=e.case_id WHERE e.id=?").get(req.params.id);
   if (!event) return res.status(404).json({ error:"Movimentação não encontrada." });
+  if (decision === "rejected" && event.editorial_status !== "in_review") return res.status(409).json({ error:"Somente uma movimentação em revisão pode ser rejeitada." });
   if (decision === "in_review" && !["draft","rejected","in_review"].includes(event.editorial_status)) return res.status(409).json({ error:"A movimentação não pode voltar à revisão a partir desse estado." });
   if (decision === "approved" && event.editorial_status !== "in_review") return res.status(409).json({ error:"A movimentação precisa passar pela revisão antes da aprovação." });
   if (decision === "approved" && (!normalizeHttpUrl(event.source_url) || !event.title)) return res.status(409).json({ error:"A movimentação precisa de título e fonte HTTP(S)." });
@@ -1420,6 +1427,7 @@ app.post("/api/admin/clips/:id/decision", requireCsrf, requireAdmin, asyncHandle
   if (!clipEditorialDecisions.has(decision)) return res.status(400).json({ error:"Decisão editorial inválida." });
   const clip = await db.prepare("SELECT v.*,c.editorial_status AS case_status,q.status AS claim_status FROM video_clips v LEFT JOIN cases c ON c.id=v.case_id LEFT JOIN claims q ON q.id=v.claim_id WHERE v.id=?").get(req.params.id);
   if (!clip) return res.status(404).json({ error:"Corte não encontrado." });
+  if (decision === "rejected" && clip.editorial_status !== "in_review") return res.status(409).json({ error:"Somente um corte em revisão pode ser rejeitado." });
   if (decision === "in_review" && !["draft","rejected","in_review"].includes(clip.editorial_status)) return res.status(409).json({ error:"O corte não pode voltar à revisão a partir desse estado." });
   if (decision === "approved" && clip.editorial_status !== "in_review") return res.status(409).json({ error:"O corte precisa passar pela revisão antes da aprovação." });
   if (decision === "approved" && (!clip.quote || !normalizeHttpUrl(clip.video_url) || mediaTimestampSeconds(clip.start_timestamp) === null || mediaTimestampSeconds(clip.end_timestamp) === null)) return res.status(409).json({ error:"O corte precisa de link original, trecho literal e intervalo válido." });
@@ -1442,6 +1450,7 @@ app.post("/api/admin/claim-relations/:id/decision", requireCsrf, requireAdmin, a
   if (!["in_review","approved","published","rejected","withdrawn"].includes(decision)) return res.status(400).json({ error:"Decisão editorial inválida." });
   const relation = await db.prepare("SELECT r.*,a.status AS status_a,b.status AS status_b FROM claim_relations r JOIN claims a ON a.id=r.claim_id JOIN claims b ON b.id=r.related_claim_id WHERE r.id=?").get(req.params.id);
   if (!relation) return res.status(404).json({ error:"Relação entre checagens não encontrada." });
+  if (decision === "rejected" && relation.editorial_status !== "in_review") return res.status(409).json({ error:"Somente uma relação em revisão pode ser rejeitada." });
   if (decision === "in_review" && !["draft","rejected","in_review"].includes(relation.editorial_status)) return res.status(409).json({ error:"A relação não pode voltar à revisão a partir desse estado." });
   if (decision === "approved" && relation.editorial_status !== "in_review") return res.status(409).json({ error:"A relação precisa passar pela revisão antes da aprovação." });
   if (decision === "approved" && relation.relation_type === "contradicts") {
