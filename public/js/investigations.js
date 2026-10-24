@@ -239,7 +239,23 @@
       if (clip.context_after) card.append(el("p", "Depois: " + clip.context_after));
       if (clip.notes) card.append(el("p", clip.notes, "muted"));
       addLink(card, videoAt(clip.video_url, clip.start_seconds || timestampSeconds(clip.start_timestamp) || 0), "Abrir vídeo original no trecho");
-      if (rootSelector === "#admin-clips") card.append(workflowActions("clip", clip));
+      if (rootSelector === "#admin-clips") {
+        if (["draft","in_review","rejected"].includes(clip.editorial_status)) {
+          const edit = el("button", "Editar rascunho", "button button-outline button-small");
+          edit.type = "button";
+          edit.addEventListener("click", () => {
+            editingClipId = clip.id;
+            const form = $("#clip-form");
+            for (const name of ["title","video_url","start_timestamp","end_timestamp","quote","context_before","context_after","notes","case_id","claim_id"]) {
+              if (form.elements[name]) form.elements[name].value = clip[name] || "";
+            }
+            form.querySelector("button[type=submit]").textContent = "Atualizar rascunho do corte";
+            form.scrollIntoView({behavior:"smooth",block:"start"});
+          });
+          card.append(edit);
+        }
+        card.append(workflowActions("clip", clip));
+      }
       root.append(card);
     }
   }
