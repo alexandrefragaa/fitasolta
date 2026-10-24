@@ -17,7 +17,7 @@ test("structured investigations page uses external JS/CSS and passes strict CSP"
 });
 
 test("structured page exposes case, person, contradiction and video-cut forms", () => {
-  for (const id of ["case-form","person-form","role-form","event-form","clip-form","relation-form"]) {
+  for (const id of ["case-form","person-form","role-form","case-claim-form","event-form","clip-form","relation-form"]) {
     assert.ok(html.includes('id="' + id + '"'), "missing form " + id);
   }
   assert.ok(html.includes("Contradições"));
@@ -25,5 +25,6 @@ test("structured page exposes case, person, contradiction and video-cut forms", 
   assert.ok(script.includes("/api/contradictions"));
   assert.ok(script.includes("/api/admin/cases"));
   assert.ok(script.includes("/api/admin/people"));
+  assert.ok(script.includes("/api/admin/cases/") && script.includes("/claims"));
   assert.ok(script.includes("/api/admin/clips"));
 });
