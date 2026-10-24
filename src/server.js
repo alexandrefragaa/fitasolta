@@ -41,11 +41,13 @@ app.disable("x-powered-by");
 if (IS_PRODUCTION) app.set("trust proxy", 1);
 
 
-const TURSO_URL = process.env.HOST_TURSO;
-const TURSO_TOKEN = process.env.TOKEN_TURSO;
+// Compatibilidade com os dois nomes já usados nas configurações Vercel/Turso.
+// A URL e o token precisam pertencer ao mesmo banco e ao mesmo ambiente.
+const TURSO_URL = process.env.HOST_TURSO || process.env.TURSO_DATABASE_URL;
+const TURSO_TOKEN = process.env.TOKEN_TURSO || process.env.TURSO_AUTH_TOKEN;
 
 if (!TURSO_URL || !TURSO_TOKEN) {
-  throw new Error("Configure HOST_TURSO e TOKEN_TURSO nas variáveis de ambiente.");
+  throw new Error("Configure HOST_TURSO + TOKEN_TURSO (ou TURSO_DATABASE_URL + TURSO_AUTH_TOKEN) para este ambiente.");
 }
 
 const libsqlClient = createClient({
