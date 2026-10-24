@@ -146,3 +146,8 @@ input:focus-visible { border-color: #f28a95; }
 .source-card-footer a { font-weight: 800; }
 .source-board-note { color: var(--muted); font-size: .85rem; margin: 1.1rem 0 0; }
 @media (max-width: 720px) { .public-source-list { grid-template-columns: 1fr; } .public-source-card:hover { transform: none; } }
+
+.analytics-consent,.cookie-notice{position:fixed;z-index:100;left:1rem;right:1rem;bottom:1rem;max-width:900px;margin:0 auto;padding:1rem;background:var(--panel);border:1px solid var(--border);border-radius:1rem;box-shadow:0 8px 40px #0008}
+.analytics-consent p,.cookie-notice p{margin-top:0}
+.analytics-actions{display:flex;gap:.65rem;flex-wrap:wrap}
+.analytics-consent[hidden],.cookie-notice[hidden]{display:none}

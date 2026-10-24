@@ -35,17 +35,12 @@
 
     <nav aria-label="Navegação principal">
       <a href="#mapa">Mural</a>
-      <a href="#mapa">Investigações</a>
-
-      <button
-        id="admin-open"
-        class="button button-outline"
-        type="button"
-        aria-haspopup="dialog"
-        aria-controls="admin-dialog"
-      >
-        Área administrativa
-      </button>
+      <a href="#fontes">Fontes externas</a>
+      <a href="/debates.html">Afirmações</a>
+      <a href="/comparar.html">Comparar</a>
+      <a href="/votacao.html">Temas ao vivo</a>
+      <a href="/revisao.html">Revisão editorial</a>
+      <button id="admin-open" class="button button-outline" type="button" aria-haspopup="dialog" aria-controls="admin-dialog">Área administrativa</button>
     </nav>
   </header>
 
@@ -150,94 +145,12 @@
       </div>
     </section>
 
-    <!-- Documentos e envio privado -->
-    <section
-      id="documentos"
-      class="panel"
-      aria-labelledby="documents-heading"
-    >
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">ARQUIVOS</p>
-          <h2 id="documents-heading">Documentos do caso</h2>
-        </div>
-      </div>
-
-      <p class="muted">
-        O envio exige uma sessão administrativa. Os PDFs são
-        armazenados fora da pasta pública e podem ser acessados
-        somente por um administrador autenticado. A validação
-        da assinatura do arquivo não substitui uma análise
-        antimalware. A extração automática de texto (OCR) e
-        a análise automática ainda não estão implementadas.
-      </p>
-
-      <p
-        id="upload-access"
-        class="status"
-        role="status"
-        aria-live="polite"
-      >
-        Entre na área administrativa para habilitar o envio
-        de documentos.
-      </p>
-
-      <form id="upload-form">
-        <label for="pdf-file">
-          Arquivo PDF (máximo de 10 MB)
-        </label>
-
-        <input
-          id="pdf-file"
-          name="file"
-          type="file"
-          accept="application/pdf,.pdf"
-          aria-describedby="upload-access upload-status"
-          required
-          disabled
-        >
-
-        <button
-          class="button"
-          type="submit"
-          disabled
-        >
-          Enviar PDF
-        </button>
-      </form>
-
-      <p
-        id="upload-status"
-        class="status"
-        role="status"
-        aria-live="polite"
-      ></p>
-
-      <section
-        id="documents-panel"
-        class="documents-panel"
-        aria-labelledby="stored-documents-heading"
-        hidden
-      >
-        <div class="section-heading">
-          <h3 id="stored-documents-heading">
-            PDFs armazenados
-          </h3>
-
-          <button
-            id="refresh-documents"
-            class="button button-outline"
-            type="button"
-          >
-            Atualizar lista
-          </button>
-        </div>
-
-        <ul
-          id="documents-list"
-          class="documents-list"
-        ></ul>
-      </section>
+    <!-- Fontes externas: documentos não são hospedados pelo site. -->
+    <section id="fontes" class="panel" aria-labelledby="sources-heading">
+      <p class="eyebrow">REFERÊNCIAS</p>
+      <h2 id="sources-heading">Fontes externas e originais</h2>
+      <p class="muted">Os links abrem nos sites originais. O FitaSolta registra referências e resumos como apoio de navegação; confira a fonte primária, seu contexto e atualizações posteriores. A extração por IA é uma sugestão editorial e nunca prova automática.</p>
+      <p>Os links originais também são listados no <a href="#public-source-list">mural de fontes</a> acima.</p>
     </section>
 
     <!-- Critérios para interpretar evidências -->

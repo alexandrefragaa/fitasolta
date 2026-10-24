@@ -1198,7 +1198,7 @@
   }
 
   async function loadDocuments() {
-    if (!state.isAdmin || state.loadingDocuments) return;
+    if (!state.isAdmin || !elements.documentsPanel || state.loadingDocuments) return;
 
     state.loadingDocuments = true;
 
@@ -1478,11 +1478,6 @@
 
     elements.search?.addEventListener("input", () => { applySearch(); loadPublicBoard(); });
 
-    elements.cookieDismiss?.addEventListener(
-      "click",
-      dismissCookieNotice
-    );
-
     elements.adminDialog?.addEventListener("close", () => {
       if (elements.adminPassword) {
         elements.adminPassword.value = "";
@@ -1492,7 +1487,6 @@
 
   async function initialize() {
     attachEvents();
-    initializeCookieNotice();
     updateUploadAccess();
 
     await refreshCsrfToken().catch(() => {
@@ -1513,6 +1507,10 @@
     // ainda não estivesse pronta. Não presumimos autenticação.
     if (state.isAdmin) {
       updateUploadAccess();
+    }
+
+    if (window.location.hash === "#admin-open" && !state.isAdmin) {
+      elements.adminOpen?.click();
     }
   }
 

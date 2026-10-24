@@ -1,0 +1,44 @@
+name: Verify FitaSolta
+
+on:
+  push:
+    branches:
+      - main
+      - fix/turso-storage-remove-pdf-upload
+      - feat/turso-evidence-platform
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Check server syntax
+        run: node --check src/server.js
+
+      - name: Check frontend syntax
+        run: |
+          node --check public/js/app.js
+          node --check src/js/app.js
+          node --check public/js/debates.js
+          node --check public/js/comparar.js
+          node --check public/js/votacao.js
+          node --check public/js/revisao.js
+
+      - name: Run tests
+        run: npm test
