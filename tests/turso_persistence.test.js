@@ -248,6 +248,201 @@ test("libSQL persistence survives restart and keeps the editorial publication ga
   assert.equal(publicClaim.response.status, 200);
   assert.equal(publicClaim.body.claim.id, claimId);
 
+  /* Structured case and person records must remain private until approval/publication. */
+  const createdCase = await requestJson(baseUrl, "/api/admin/cases", {
+    method: "POST",
+    cookie,
+    csrf,
+    body: {
+      title: "Caso fictício de persistência",
+      summary: "Resumo fictício usado apenas para validar o fluxo editorial e a persistência.",
+      category: "investigacao_publica",
+      jurisdiction: "Brasil",
+      responsible_agency: "Órgão de teste",
+      official_reference: "TEST-CASE-001",
+      source_url: "https://example.org/case-source",
+      status: "apuracao_preliminar",
+      opened_at: "2026-10-01",
+      last_checked_at: "2026-10-24",
+      next_review_at: "2026-11-01"
+    }
+  });
+  assert.equal(createdCase.response.status, 201, JSON.stringify(createdCase.body));
+  const caseId = createdCase.body.id;
+  const publicCasesBefore = await requestJson(baseUrl, "/api/cases");
+  assert.equal(publicCasesBefore.body.cases.some((item) => item.id === caseId), false);
+
+  for (const decision of ["in_review", "approved", "published"]) {
+    const response = await requestJson(baseUrl, "/api/admin/cases/" + caseId + "/decision", {
+      method: "POST", cookie, csrf, body: { decision }
+    });
+    assert.equal(response.response.status, 200, JSON.stringify(response.body));
+  }
+  const publicCase = await requestJson(baseUrl, "/api/cases/" + caseId);
+  assert.equal(publicCase.response.status, 200);
+  assert.equal(publicCase.body.case.id, caseId);
+
+  const createdPerson = await requestJson(baseUrl, "/api/admin/people", {
+    method: "POST",
+    cookie,
+    csrf,
+    body: {
+      name: "Pessoa fictícia de teste",
+      type: "person",
+      description: "Perfil fictício sem correspondência com pessoa real, criado para teste de privacidade.",
+      source_url: "https://example.org/person-source",
+      source_date: "2026-10-24",
+      evidence_status: "nao_verificado"
+    }
+  });
+  assert.equal(createdPerson.response.status, 201, JSON.stringify(createdPerson.body));
+  const personId = createdPerson.body.id;
+  const publicPeopleBefore = await requestJson(baseUrl, "/api/entities");
+  assert.equal(publicPeopleBefore.body.entities.some((item) => item.id === personId), false);
+
+  for (const decision of ["in_review", "approved", "published"]) {
+    const response = await requestJson(baseUrl, "/api/admin/people/" + personId + "/decision", {
+      method: "POST", cookie, csrf, body: { decision }
+    });
+    assert.equal(response.response.status, 200, JSON.stringify(response.body));
+  }
+  const publicPeopleAfter = await requestJson(baseUrl, "/api/entities");
+  assert.equal(publicPeopleAfter.body.entities.some((item) => item.id === personId), true);
+
+  const role = await requestJson(baseUrl, "/api/admin/cases/" + caseId + "/people", {
+    method: "POST",
+    cookie,
+    csrf,
+    body: {
+      entity_id: personId,
+      role: "testemunha",
+      role_description: "Papel de teste sem alegação factual.",
+      valid_from: "2026-10-01",
+      valid_to: "2026-10-24",
+      source_url: "https://example.org/person-role-source"
+    }
+  });
+  assert.equal(role.response.status, 201, JSON.stringify(role.body));
+  for (const decision of ["in_review", "approved", "published"]) {
+    const response = await requestJson(baseUrl, "/api/admin/case-people/" + role.body.id + "/decision", {
+      method: "POST", cookie, csrf, body: { decision }
+    });
+    assert.equal(response.response.status, 200, JSON.stringify(response.body));
+  }
+
+  const event = await requestJson(baseUrl, "/api/admin/cases/" + caseId + "/events", {
+    method: "POST",
+    cookie,
+    csrf,
+    body: {
+      event_type: "atualizacao_oficial",
+      event_date: "2026-10-20",
+      document_date: "2026-10-21",
+      published_date: "2026-10-22",
+      title: "Movimentação fictícia",
+      description: "Evento fictício para validar a linha do tempo.",
+      source_url: "https://example.org/case-event-source",
+      verification_status: "not_checked"
+    }
+  });
+  assert.equal(event.response.status, 201, JSON.stringify(event.body));
+  for (const decision of ["in_review", "approved", "published"]) {
+    const response = await requestJson(baseUrl, "/api/admin/case-events/" + event.body.id + "/decision", {
+      method: "POST", cookie, csrf, body: { decision }
+    });
+    assert.equal(response.response.status, 200, JSON.stringify(response.body));
+  }
+
+  const secondClaim = await requestJson(baseUrl, "/api/admin/claims", {
+    method: "POST",
+    cookie,
+    csrf,
+    body: {
+      speaker: "Outra pessoa de teste",
+      video_url: "https://www.youtube.com/watch?v=gXN1JxBkyX8",
+      source_kind: "video_original",
+      timestamp: "00:02:20",
+      quote: "Afirmação fictícia alternativa para testar relações.",
+      context: "Contexto fictício sem afirmação sobre pessoa real.",
+      claim_type: "factual",
+      verdict: "nao_verificada",
+      explanation: "Teste automatizado; não constitui uma checagem real.",
+      supporting_evidence: "",
+      contradictory_evidence: "",
+      journalism_checks: ["https://example.org/second-check"],
+      primary_sources: ["https://example.org/second-primary"]
+    }
+  });
+  assert.equal(secondClaim.response.status, 201, JSON.stringify(secondClaim.body));
+  const secondClaimId = secondClaim.body.id;
+  const secondReview = await requestJson(baseUrl, "/api/admin/claims/" + secondClaimId + "/reviews", {
+    method: "POST", cookie, csrf,
+    body: { model: "automated-test", output: { verdict: "inconclusiva", note: "Test only." } }
+  });
+  assert.equal(secondReview.response.status, 201, JSON.stringify(secondReview.body));
+  for (const decision of ["approved", "published"]) {
+    const response = await requestJson(baseUrl, "/api/admin/claims/" + secondClaimId + "/decision", {
+      method: "POST", cookie, csrf, body: { decision }
+    });
+    assert.equal(response.response.status, 200, JSON.stringify(response.body));
+  }
+
+  const relationDraft = await requestJson(baseUrl, "/api/admin/claims/" + claimId + "/relations", {
+    method: "POST",
+    cookie,
+    csrf,
+    body: {
+      related_claim_id: secondClaimId,
+      relation_type: "contradicts",
+      explanation: "Relação fictícia usada para testar a publicação editorial, não uma conclusão factual."
+    }
+  });
+  assert.equal(relationDraft.response.status, 201, JSON.stringify(relationDraft.body));
+  const contradictionBefore = await requestJson(baseUrl, "/api/contradictions");
+  assert.equal(contradictionBefore.body.contradictions.some((item) => item.id === relationDraft.body.id), false);
+  for (const decision of ["in_review", "approved", "published"]) {
+    const response = await requestJson(baseUrl, "/api/admin/claim-relations/" + relationDraft.body.id + "/decision", {
+      method: "POST", cookie, csrf, body: { decision }
+    });
+    assert.equal(response.response.status, 200, JSON.stringify(response.body));
+  }
+  const contradictionAfter = await requestJson(baseUrl, "/api/contradictions");
+  assert.equal(contradictionAfter.body.contradictions.some((item) => item.id === relationDraft.body.id), true);
+
+  const clip = await requestJson(baseUrl, "/api/admin/clips", {
+    method: "POST",
+    cookie,
+    csrf,
+    body: {
+      case_id: caseId,
+      claim_id: claimId,
+      title: "Corte de teste 00:01:20–00:01:40",
+      video_url: "https://www.youtube.com/watch?v=gXN1JxBkyX8",
+      start_timestamp: "00:01:20",
+      end_timestamp: "00:01:40",
+      quote: "Trecho fictício para teste de persistência.",
+      context_before: "Contexto anterior fictício.",
+      context_after: "Contexto posterior fictício.",
+      notes: "Metadados do corte; nenhum arquivo de vídeo é copiado."
+    }
+  });
+  assert.equal(clip.response.status, 201, JSON.stringify(clip.body));
+  const clipsBefore = await requestJson(baseUrl, "/api/clips");
+  assert.equal(clipsBefore.body.clips.some((item) => item.id === clip.body.id), false);
+  for (const decision of ["in_review", "approved", "published"]) {
+    const response = await requestJson(baseUrl, "/api/admin/clips/" + clip.body.id + "/decision", {
+      method: "POST", cookie, csrf, body: { decision }
+    });
+    assert.equal(response.response.status, 200, JSON.stringify(response.body));
+  }
+  const clipsAfter = await requestJson(baseUrl, "/api/clips");
+  assert.equal(clipsAfter.body.clips.some((item) => item.id === clip.body.id), true);
+
+  const publicCaseAfter = await requestJson(baseUrl, "/api/cases/" + caseId);
+  assert.equal(publicCaseAfter.body.people.some((item) => item.entity_id === personId), true);
+  assert.equal(publicCaseAfter.body.events.some((item) => item.id === event.body.id), true);
+  assert.equal(publicCaseAfter.body.clips.some((item) => item.id === clip.body.id), true);
+
   await stopApp(child);
   child = undefined;
   child = startApp(port, databasePath);
