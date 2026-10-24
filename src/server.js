@@ -1522,7 +1522,7 @@ app.use((error, req, res, next) => {
       error: "A API está temporariamente indisponível porque o banco Turso não está pronto neste ambiente."
     });
   }
-  console.error("Erro interno do servidor:", error?.code || "erro desconhecido");
+  console.error("Erro interno do servidor:", NODE_ENV === "test" ? (error?.stack || error?.message || String(error)) : (error?.code || "erro desconhecido"));
   return res.status(500).json({ error: "Ocorreu um erro interno. Tente novamente." });
 });
 
