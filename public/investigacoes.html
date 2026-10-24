@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Explore pessoas, casos, relações documentadas, fontes e linhas do tempo no FitaSolta.">
+  <meta name="theme-color" content="#0b0d12">
+  <title>Conexões e investigações — FitaSolta</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/investigacoes.css">
+  <script src="/js/investigacoes.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/" aria-label="FitaSolta — página inicial"><span class="brand-mark" aria-hidden="true">FS</span><span>FITASOLTA</span></a>
+  <nav aria-label="Navegação principal">
+    <a href="/">Mural</a><a href="/debates.html">Afirmações</a><a href="/comparar.html">Comparar</a><a href="/votacao.html">Temas ao vivo</a>
+  </nav>
+</header>
+<main class="container research-page">
+  <section class="research-hero">
+    <p class="eyebrow">PESSOAS · CASOS · DOCUMENTOS · CONTEXTO</p>
+    <h1>Conexões documentadas</h1>
+    <p>Explore as relações registradas entre pessoas, organizações e casos. Cada ligação deve ser lida com sua fonte, data e estado de evidência — não como prova automática de culpa ou responsabilidade.</p>
+    <details class="guide">
+      <summary>Como usar este painel</summary>
+      <ol>
+        <li>Busque uma pessoa, organização ou caso.</li>
+        <li>Abra a ficha e confira as relações e as fontes originais.</li>
+        <li>Use a linha do tempo para comparar datas; diferencie fala, promessa, voto, decisão e entrega.</li>
+        <li>Na busca de transcrições, pesquise uma frase e abra o vídeo no timestamp cadastrado.</li>
+      </ol>
+      <p>Investigado não significa condenado. Rótulos e sugestões de IA não substituem a leitura dos documentos.</p>
+    </details>
+  </section>
+
+  <section class="panel">
+    <div class="section-heading"><div><p class="eyebrow">REDE DE REGISTROS</p><h2>Pessoas, casos e relações</h2></div><button class="button button-outline" id="refresh-network" type="button">Atualizar</button></div>
+    <div class="filters">
+      <label>Buscar<input id="entity-search" type="search" maxlength="120" placeholder="Nome, descrição ou relação"></label>
+      <label>Tipo<select id="entity-type"><option value="">Todos os tipos</option></select></label>
+      <label>Estado da evidência<select id="entity-status"><option value="">Todos os estados</option><option value="documentado">Documentado</option><option value="confirmada_por_documento">Confirmado por documento</option><option value="contradita_por_documento">Contradito por documento</option><option value="alegacao">Alegação</option><option value="hipotese">Hipótese</option><option value="nao_verificado">Não verificado</option><option value="em_disputa">Em disputa</option></select></label>
+    </div>
+    <p class="status-note" id="network-status" role="status" aria-live="polite">Carregando registros…</p>
+    <div class="network-layout">
+      <div id="entity-list" class="entity-list"><p class="empty-state">Carregando fichas…</p></div>
+      <aside id="entity-detail" class="entity-detail" aria-live="polite"><p class="empty-state">Selecione uma ficha para ver suas conexões e a linha do tempo.</p></aside>
+    </div>
+  </section>
+
+  <section class="panel" id="transcripts">
+    <div class="section-heading"><div><p class="eyebrow">FALAS E DOCUMENTOS</p><h2>Buscar nas afirmações publicadas</h2></div></div>
+    <p class="status-note">A busca consulta as transcrições e os contextos cadastrados. Ela não transcreve automaticamente o YouTube; os trechos e timestamps precisam ser conferidos pela equipe editorial.</p>
+    <label class="transcript-search">Frase ou palavra<input id="claim-search" type="search" maxlength="160" placeholder="Ex.: saúde, orçamento, segurança…"></label>
+    <p id="claim-search-status" class="status-note" aria-live="polite"></p>
+    <div id="claim-results" class="claim-results"><p class="empty-state">Carregando afirmações…</p></div>
+  </section>
+</main>
+<footer class="footer"><span>FitaSolta · fontes rastreáveis, conclusões abertas</span><a href="/debates.html">Ver afirmações e correções</a></footer>
+</body>
+</html>
