@@ -238,6 +238,17 @@ async function initializeDatabase() {
       UNIQUE (poll_period, vote_key)
     );
 
+    CREATE TABLE IF NOT EXISTS aggregate_analytics (
+      id TEXT PRIMARY KEY,
+      day TEXT NOT NULL,
+      event TEXT NOT NULL,
+      resource TEXT NOT NULL,
+      count INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (day, event, resource)
+    );
+    CREATE INDEX IF NOT EXISTS idx_aggregate_analytics_day ON aggregate_analytics(day);
+
     CREATE INDEX IF NOT EXISTS idx_claims_status_date ON claims(status, claim_date);
     CREATE INDEX IF NOT EXISTS idx_claims_speaker ON claims(speaker);
     CREATE INDEX IF NOT EXISTS idx_claims_topic ON claims(topic);
@@ -893,6 +904,15 @@ function signVoteToken(token) {
   return crypto.createHmac("sha256", SESSION_SECRET).update(token).digest("hex");
 }
 
+async function trackAggregate(event, resource) {
+  const day = new Date().toISOString().slice(0, 10);
+  await db.prepare(`
+    INSERT INTO aggregate_analytics (id, day, event, resource, count)
+    VALUES (?, ?, ?, ?, 1)
+    ON CONFLICT(day, event, resource) DO UPDATE SET count = count + 1, updated_at = CURRENT_TIMESTAMP
+  `).run(crypto.randomUUID(), day, event, resource);
+}
+
 function getVoteKey(req, res) {
   const cookies = parseCookieHeader(req.headers.cookie || "");
   const [token, signature] = String(cookies["fitasolta.voter"] || "").split(".");
@@ -1253,6 +1273,57 @@ app.post("/api/admin/claims/:id/relations", requireCsrf, requireAdmin, asyncHand
   res.status(201).json({ id });
 }));
 
+
+/* Métricas de uso agregadas e opcionais. Não são armazenados IP, texto de pesquisa ou ID de visitante. */
+const analyticsLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false
+});
+const ANALYTICS_RESOURCES = new Set(["/", "/debates.html", "/comparar.html", "/votacao.html"]);
+app.post("/api/analytics", analyticsLimiter, requireCsrf, asyncHandler(async (req, res) => {
+  const event = ["page_view", "search", "claim_view"].includes(req.body?.event) ? req.body.event : null;
+  let resource = cleanString(req.body?.resource || "", { min: 1, max: 120, required: true });
+  if (!event || !resource) return res.status(400).json({ error: "Evento analítico inválido." });
+  if (event === "claim_view") {
+    const match = /^claim:([a-f0-9-]{20,80})$/i.exec(resource);
+    if (!match) return res.status(400).json({ error: "Ficha analítica inválida." });
+    const claim = await db.prepare("SELECT id FROM claims WHERE id = ? AND status = 'published'").get(match[1]);
+    if (!claim) return res.status(404).json({ error: "Ficha pública não encontrada." });
+    resource = "claim:" + claim.id;
+  } else if (!ANALYTICS_RESOURCES.has(resource)) {
+    return res.status(400).json({ error: "Página fora da lista de métricas permitidas." });
+  }
+  await trackAggregate(event, resource);
+  res.status(202).json({ ok: true });
+}));
+
+app.get("/api/admin/analytics", requireAdmin, asyncHandler(async (req, res) => {
+  const [events, frequentlyCorrected, mostViewedClaims] = await Promise.all([
+    db.prepare(`
+      SELECT event, resource, SUM(count) AS total
+      FROM aggregate_analytics WHERE day >= date('now', '-30 days')
+      GROUP BY event, resource ORDER BY total DESC LIMIT 100
+    `).all(),
+    db.prepare(`
+      SELECT c.id, c.speaker, substr(c.quote, 1, 180) AS quote, COUNT(cr.id) AS corrections
+      FROM correction_reports cr JOIN claims c ON c.id = cr.claim_id
+      GROUP BY c.id, c.speaker, c.quote ORDER BY corrections DESC LIMIT 20
+    `).all(),
+    db.prepare(`
+      SELECT c.id, c.speaker, substr(c.quote, 1, 180) AS quote, SUM(a.count) AS views
+      FROM aggregate_analytics a JOIN claims c ON a.resource = 'claim:' || c.id
+      WHERE a.event = 'claim_view' AND a.day >= date('now', '-30 days') AND c.status = 'published'
+      GROUP BY c.id, c.speaker, c.quote ORDER BY views DESC LIMIT 20
+    `).all()
+  ]);
+  res.set("Cache-Control", "no-store").json({
+    period_days: 30,
+    events: events.map(x => ({ event: x.event, resource: x.resource, count: Number(x.total || 0) })),
+    frequently_corrected: frequentlyCorrected.map(x => ({ id: x.id, speaker: x.speaker, quote: x.quote, corrections: Number(x.corrections || 0) })),
+    most_viewed_claims: mostViewedClaims.map(x => ({ id: x.id, speaker: x.speaker, quote: x.quote, views: Number(x.views || 0) })),
+    privacy: "Apenas contagens agregadas. Não salvamos IP, texto de pesquisa ou ID de visitante nessa tabela."
+  });
+}));
+
 /* Correções públicas: não exigem cadastro e não são publicadas sem triagem. */
 const correctionLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, max: 6, standardHeaders: true, legacyHeaders: false,
@@ -1270,6 +1341,7 @@ app.post("/api/claims/:id/corrections", correctionLimiter, requireCsrf, asyncHan
   const id = crypto.randomUUID();
   await db.prepare("INSERT INTO correction_reports (id, claim_id, summary, details, evidence_url) VALUES (?, ?, ?, ?, ?)")
     .run(id, claim.id, summary, details, evidenceUrl);
+  await trackAggregate("correction_submitted", "claim:" + claim.id);
   await audit(req, "public_correction_submitted", "claim", claim.id);
   res.status(201).json({ id, status: "pending", message: "Correção recebida para revisão; ainda não foi publicada." });
 }));
@@ -1340,6 +1412,7 @@ app.post("/api/topic-votes", topicVoteLimiter, requireCsrf, asyncHandler(async (
     ON CONFLICT(poll_period, vote_key) DO UPDATE SET topic = excluded.topic, country = excluded.country,
       state = excluded.state, city = excluded.city, updated_at = CURRENT_TIMESTAMP
   `).run(crypto.randomUUID(), period, topic, country, state, city, voteKey);
+  await trackAggregate("topic_vote", topic);
   res.status(201).json({ ok: true, period, message: "Preferência temática registrada. Você pode alterá-la durante este mês." });
 }));
 
