@@ -48,9 +48,9 @@
 <h3>1. Afirmação e contexto</h3>
 <label for="speaker">Pessoa que fez a afirmação</label><select id="speaker" required><option value="">Selecione</option><option>Lula</option><option>Flávio Bolsonaro</option><option>Outra pessoa / não identificado</option></select>
 <label for="video-id">Vídeo de origem</label><select id="video-id" required><option value="">Selecione</option><option value="1">Vídeo 01</option><option value="2">Vídeo 02</option><option value="3">Vídeo 03</option><option value="4">Vídeo 04</option><option value="5">Vídeo 05</option><option value="6">Vídeo 06</option><option value="7">Vídeo 07</option><option value="8">Vídeo 08</option><option value="9">Vídeo 09</option><option value="10">Publicação no X</option></select>
-<label for="timestamp">Timestamp exato (ex.: 00:12:34)</label><input id="timestamp" required pattern="^([0-9]{1,2}:)?[0-5][0-9]:[0-5][0-9]$" placeholder="00:12:34">
+<label for="timestamp">Timestamp / localização no material</label><input id="timestamp" pattern="^([0-9]{1,2}:)?[0-5][0-9]:[0-5][0-9]$" placeholder="Vídeo: 00:12:34 · X: deixe em branco">
 <label for="quote">Transcrição literal da afirmação</label><textarea id="quote" rows="4" maxlength="3000" required placeholder="Copie exatamente e confira a fala no vídeo."></textarea>
-<label for="context-text">Contexto anterior e posterior</label><textarea id="context-text" rows="3" maxlength="3000" required placeholder="Pergunta feita, frase anterior e resposta completa…"></textarea>
+<label for="context-text">Contexto anterior e posterior</label><textarea id="context-text" rows="3" maxlength="3000" required placeholder="Vídeo: pergunta e resposta completa. X: texto, legenda e contexto da publicação…"></textarea>
 <label for="claim-type">Tipo de conteúdo</label><select id="claim-type" required><option value="">Selecione</option><option>Afirmação factual verificável</option><option>Opinião</option><option>Promessa ou proposta</option><option>Previsão</option><option>Não determinado</option></select>
 <button class="button" type="submit">Gerar ficha de checagem</button>
 </form>
@@ -149,7 +149,7 @@
    "Explicação: "+(data.explanation||"Ainda não redigida"),
    "STATUS: rascunho; requer revisão humana."
   ].join("\n\n");
-  byId("export-status").textContent="Ficha estruturada. Revise os campos de evidência antes de exportar.";
+  byId("export-status").textContent="Ficha estruturada. Revise as evidências. O arquivo ainda não é salvo no servidor.";
   byId("export-status").dataset.text=output;
  });
  byId("export-record").addEventListener("click",()=>{
