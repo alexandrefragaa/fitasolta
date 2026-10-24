@@ -78,3 +78,10 @@ Configure `HOST_TURSO`, `TOKEN_TURSO`, `SESSION_SECRET` e `ADMIN_PASSWORD_HASH` 
 - Vídeos exigem fala literal, contexto e timestamp; publicações no X podem não ter timestamp.
 - A API bloqueia a publicação até que a ficha seja aprovada editorialmente e possua fonte de checagem.
 - A inclusão de uma fala ou postagem na página não significa que ela foi verificada.
+
+
+## Integração de fontes do Turso e revisão com Gemini
+
+A fila de fontes pública e a área administrativa usam a integração separada de fila via `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN`. O servidor mantém esses valores fora do navegador. O processamento de fontes atualiza status e resumo no banco; portanto, a credencial usada para processar precisa ter permissão de escrita na tabela `source_queue`. Não use token read-only para o botão de processamento.
+
+Configure também `GEMINI_API_KEY` para habilitar revisão assistida e processamento de fontes. O resultado da IA é auxílio editorial: confira sempre o documento original e não publique uma conclusão sem revisão humana.
