@@ -36,6 +36,7 @@
     sourceQueueList: $("#source-queue-list"),
     refreshSourceQueue: $("#refresh-source-queue"),
     processSourceQueue: $("#process-source-queue"),
+    retrySourceErrors: $("#retry-source-errors"),
 
     search: $("#search"),
     searchButton: $("#search-button"),
@@ -623,22 +624,28 @@
   }
 
 
-  async function processSourceQueue() {
-    if (!state.isAdmin || !elements.processSourceQueue) return;
-    setButtonLoading(elements.processSourceQueue, true, "Processando…");
-    setStatus(elements.sourceQueueStatus, "Extraindo páginas e analisando até 3 fontes com Gemini…");
+  async function processSourceQueue({ retryErrors = false } = {}) {
+    const triggerButton = retryErrors ? elements.retrySourceErrors : elements.processSourceQueue;
+    if (!state.isAdmin || !triggerButton) return;
+    setButtonLoading(triggerButton, true, retryErrors ? "Tentando novamente…" : "Processando…");
+    setStatus(
+      elements.sourceQueueStatus,
+      retryErrors
+        ? "Tentando novamente até 3 fontes com erro…"
+        : "Extraindo páginas e analisando até 3 fontes com Gemini…"
+    );
     try {
       const data = await apiFetch("/admin/process-sources", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-CSRF-Token": state.csrfToken },
-        body: JSON.stringify({ limit: 3 })
+        body: JSON.stringify({ limit: 3, retryErrors })
       });
       await loadSourceQueue();
       setStatus(elements.sourceQueueStatus, data.message || ("Lote concluído: " + (data.completed || 0) + " fontes processadas, " + (data.errors || 0) + " com erro."), Boolean(data.errors));
     } catch (error) {
       setStatus(elements.sourceQueueStatus, error.message || "Não foi possível processar as fontes.", true);
     } finally {
-      setButtonLoading(elements.processSourceQueue, false);
+      setButtonLoading(triggerButton, false);
     }
   }
 
@@ -1464,7 +1471,8 @@
     elements.refreshGraph?.addEventListener("click", loadPublicBoard);
     elements.refreshDocuments?.addEventListener("click", loadDocuments);
     elements.refreshSourceQueue?.addEventListener("click", loadSourceQueue);
-    elements.processSourceQueue?.addEventListener("click", processSourceQueue);
+    elements.processSourceQueue?.addEventListener("click", () => processSourceQueue());
+    elements.retrySourceErrors?.addEventListener("click", () => processSourceQueue({ retryErrors: true }));
     elements.sourceQueueSearch?.addEventListener("input", renderSourceQueue);
 
     elements.searchButton?.addEventListener("click", () => { applySearch(); loadPublicBoard(); });
