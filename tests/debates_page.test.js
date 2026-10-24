@@ -5,14 +5,16 @@ import { Script } from "node:vm";
 
 const html = readFileSync(new URL("../public/debates.html", import.meta.url), "utf8");
 const debateScript = readFileSync(new URL("../public/js/debates.js", import.meta.url), "utf8");
-const inlineScripts = [...html.matchAll(/<script(?![^>]*\\bsrc=)[^>]*>([\\s\\S]*?)<\\/script>/gi)].map((match) => match[1]).filter((source) => source.trim());
+const inlineScripts = [...html.matchAll(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/gi)]
+  .map((match) => match[1])
+  .filter((source) => source.trim());
 
 test("debates page uses a valid external script compatible with the strict CSP", () => {
   assert.equal(inlineScripts.length, 0, "inline JavaScript is blocked by the production CSP");
-  assert.match(html, /<script\\s+src="\\/js\\/debates\\.js"\\s+defer><\\/script>/);
+  assert.ok(html.includes('<script src="/js/debates.js" defer></script>'));
   assert.doesNotThrow(() => new Script(debateScript));
   const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
-  assert.match(server, /frameSrc: \\[["\']self["\'], "https:\\/\\/www\\.youtube-nocookie\\.com", "https:\\/\\/www\\.youtube\\.com"\\]/);
+  assert.ok(server.includes('frameSrc: ["\\'self\\'", "https://www.youtube-nocookie.com", "https://www.youtube.com"]'));
 });
 
 test("evidence workflow exposes save, public claims and private editorial queue", () => {
