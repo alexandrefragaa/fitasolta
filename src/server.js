@@ -952,6 +952,206 @@ async function extractSourcePage(rawUrl) {
   throw new Error("Não foi possível abrir a fonte.");
 }
 
+
+function parseModelJson(rawText) {
+  const raw = String(rawText || "").trim();
+  try { return JSON.parse(raw); } catch {}
+  const start = raw.indexOf("{"), end = raw.lastIndexOf("}");
+  if (start >= 0 && end > start) { try { return JSON.parse(raw.slice(start, end + 1)); } catch {} }
+  throw new Error("A resposta do modelo não veio em JSON válido.");
+}
+function sourceTextKey(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().toLocaleLowerCase("pt-BR");
+}
+async function summarizeExtractedSource(source) {
+  const prompt = [
+    "Organize esta fonte em português brasileiro para um mural público. Use exclusivamente o texto extraído e a imagem anexada, se houver. Nunca invente nomes, datas, processos, leis, sentenças ou andamento.",
+    "Diferencie alegação, denúncia, investigação, decisão provisória, condenação, absolvição, soltura, anulação e recurso. Mencionar uma pessoa não implica culpa.",
+    "Detecte no máximo uma afirmação pública literal que possa ser checada. Só preencha candidate_claim se a fala estiver citada literalmente no texto/transcrição e for possível identificar o falante. Copie quote literalmente. Para vídeo, timestamp só pode vir de um [HH:MM:SS] presente na transcrição. Se não houver fala literal, use null.",
+    "candidate_claim: speaker, quote (até 420 caracteres), context (até 350), claim_type (factual, promessa, proposta, opinião, previsão ou não_identificado), timestamp (HH:MM:SS ou vazio), verifiable (boolean). Promessa, opinião, previsão e proposta não são automaticamente verdadeiras ou falsas.",
+    "Retorne JSON válido com title, category (Política, Justiça e processos, Segurança, Economia, Saúde, Educação, Meio ambiente, Trabalho, Direitos e cidadania, Eleições, Governo e medidas ou Outros), event_date (AAAA-MM-DD só se explícita), people (até 6), organizations (até 6), cases (até 4 explícitos), legal_status (até 220 caracteres), summary (2-4 frases neutras até 700 caracteres), key_points (até 4), source_limitations (até 260), candidate_claim (objeto ou null).",
+    "Não dê veredito nesta etapa; pesquisa e cotejo de evidências são uma etapa separada.",
+    "URL: " + (source.original_url || source.url || "(material sem URL de origem)"),
+    "Título: " + (source.title || "(ausente)"),
+    "Texto/transcrição:\n" + (source.text || "(sem texto acessível)")
+  ].join("\n\n");
+  const extraParts = source.imageData ? [{ inlineData: { mimeType: source.imageData.mimeType, data: source.imageData.data } }] : [];
+  const result = await generateGeminiJson(prompt, { temperature: 0.1, responseMimeType: "application/json" }, { extraParts });
+  const candidateResult = result.payload && result.payload.candidates && result.payload.candidates[0];
+  const raw = candidateResult && candidateResult.content ? candidateResult.content.parts.map((part) => part.text || "").join("").trim() : "";
+  if (!raw) throw new Error("Gemini retornou resposta vazia.");
+  const p = parseModelJson(raw);
+  const allowed = new Set(["Política", "Justiça e processos", "Segurança", "Economia", "Saúde", "Educação", "Meio ambiente", "Trabalho", "Direitos e cidadania", "Eleições", "Governo e medidas", "Outros"]);
+  const list = (value, limit, max = 180) => Array.isArray(value) ? value.slice(0, limit).map((item) => cleanString(item, { max })).filter(Boolean) : [];
+  let claim = null;
+  const candidate = p.candidate_claim;
+  if (candidate && typeof candidate === "object") {
+    const quote = cleanString(candidate.quote || "", { max: 420 }) || "";
+    const speaker = cleanString(candidate.speaker || "", { max: 120 }) || "";
+    const literal = quote.length >= 20 && sourceTextKey(source.text).includes(sourceTextKey(quote));
+    const type = ["factual", "promessa", "proposta", "opinião", "previsão", "não_identificado"].includes(candidate.claim_type) ? candidate.claim_type : "não_identificado";
+    const timestamp = isVideoTimestamp(String(candidate.timestamp || "")) ? String(candidate.timestamp) : "";
+    if (literal && speaker && type !== "não_identificado") claim = { speaker, quote, context: cleanString(candidate.context || "", { max: 350 }) || "", claim_type: type, timestamp, verifiable: type === "factual" && candidate.verifiable === true };
+  }
+  const video = parseYouTubeReference(source.media_url || source.video_source_url || source.original_url || source.url);
+  return {
+    title: cleanString(p.title || source.title || source.url || "Material enviado", { max: 250 }) || "Material enviado",
+    category: allowed.has(p.category) ? p.category : "Outros",
+    event_date: isIsoDate(String(p.event_date || "")) ? String(p.event_date) : "",
+    people: list(p.people, 6), organizations: list(p.organizations, 6), cases: list(p.cases, 4),
+    legal_status: cleanString(p.legal_status || "", { max: 220 }) || "",
+    summary: cleanString(p.summary || "", { max: 700 }) || "O material foi recebido, mas não permitiu produzir um resumo confiável.",
+    key_points: list(p.key_points, 4), source_limitations: cleanString(p.source_limitations || "", { max: 260 }) || "",
+    candidate_claim: claim, media_url: source.media_url || (video ? video.video_url : ""),
+    media_type: source.media_type || (video ? "video" : "link"), video_id: source.video_id || (video ? video.video_id : ""),
+    video_start: Number(source.video_start || (video ? video.video_start : 0)), video_source_url: source.video_source_url || (video ? video.video_url : ""),
+    image_url: source.image_url || (source.media_type === "image" ? source.media_url : "") || "",
+    transcript_available: Boolean(source.transcript_available), fact_check: null
+  };
+}
+function normalizeGroundingLabel(value) {
+  return String(value || "").toLocaleLowerCase("pt-BR").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+}
+function mapGroundingSourceLabels(labels, sources) {
+  if (!Array.isArray(labels)) return [];
+  const found = [];
+  for (const label of labels.slice(0, 3)) {
+    const needle = normalizeGroundingLabel(label);
+    if (!needle) continue;
+    const item = sources.find((source) => {
+      const title = normalizeGroundingLabel(source.title);
+      let host = "";
+      try { host = normalizeGroundingLabel(new URL(source.url).hostname.replace(/^www\./, "")); } catch {}
+      return (title && (title === needle || title.includes(needle) || needle.includes(title)) ||
+        (host && (host === needle || host.includes(needle) || needle.includes(host)));
+    });
+    if (item && !found.some((entry) => entry.url === item.url)) found.push(item);
+  }
+  return found;
+}
+async function verifyCandidateClaimAutomatically(claim, source, budget = { remaining: 1 }) {
+  if (!claim) return null;
+  if (!claim.verifiable || claim.claim_type !== "factual") return {
+    verdict: "opiniao_previsao", confidence: "baixa",
+    explanation: "Este conteúdo foi classificado como promessa, proposta, opinião, previsão ou item sem elementos suficientes para checagem factual.",
+    supporting_evidence: "", contradictory_evidence: "", context_note: "",
+    supporting_sources: [], contradictory_sources: [], searched_sources: [],
+    verified_at: new Date().toISOString(), method: "classificação de conteúdo; sem veredito factual"
+  };
+  if (budget.remaining <= 0) return {
+    verdict: "nao_verificada", confidence: "baixa",
+    explanation: "A fala foi identificada, mas a pesquisa externa ficou pendente para limitar consultas automáticas.",
+    supporting_evidence: "", contradictory_evidence: "", context_note: "",
+    supporting_sources: [], contradictory_sources: [], searched_sources: [],
+    verified_at: new Date().toISOString(), method: "pendente de pesquisa externa"
+  };
+  budget.remaining -= 1;
+  const prompt = [
+    "Você é um verificador factual para um site público brasileiro. Pesquise a fala usando Google Search nesta chamada.",
+    "Aplique critérios iguais a todas as pessoas e partidos, incluindo Lula e Flávio Bolsonaro. Não faça ranking político nem infira intenção.",
+    "Confira período e contexto corretos. Priorize documentos primários oficiais e checagens jornalísticas transparentes. Procure fontes que contradigam ou limitem a fala, não apenas fontes concordantes.",
+    "Use verdadeira se a evidência sustentar o conteúdo central; falsa se evidência confiável contradisser o núcleo; enganosa se houver elemento verdadeiro apresentado de forma materialmente incompleta; fora_de_contexto apenas se o contexto original alterar a interpretação. Caso contrário, inconclusiva ou nao_verificada.",
+    "Opinião, previsão, proposta e promessa não recebem rótulo de fato verdadeiro/falso. Investigação ou denúncia não equivale a condenação.",
+    "Retorne JSON válido: verdict (verdadeira, falsa, enganosa, fora_de_contexto, inconclusiva, nao_verificada ou opiniao_previsao), confidence (baixa, media ou alta), explanation (até 600 caracteres), supporting_source_titles (até 3 títulos/domínios exatos dos resultados), supporting_evidence (até 350), contradictory_source_titles (até 3 títulos/domínios exatos), contradictory_evidence (até 350), context_note (até 300). Não invente URLs nem títulos.",
+    "Fala literal: " + claim.quote,
+    "Pessoa atribuída: " + claim.speaker,
+    "Contexto: " + (claim.context || source.summary || ""),
+    "Fonte original: " + (source.original_url || source.url || "(texto sem URL)"),
+    "Texto de origem: " + String(source.text || "").slice(0, 4500)
+  ].join("\n\n");
+  try {
+    const result = await generateGeminiJson(prompt, { temperature: 0.1 }, { tools: [{ google_search: {} }] });
+    const candidate = result.payload && result.payload.candidates && result.payload.candidates[0];
+    const raw = candidate && candidate.content ? candidate.content.parts.map((part) => part.text || "").join("").trim() : "";
+    const p = parseModelJson(raw);
+    const metadata = (candidate && candidate.groundingMetadata) || {};
+    const seen = new Set();
+    const sources = (metadata.groundingChunks || []).map((chunk) => {
+      const url = String(chunk && chunk.web && chunk.web.uri || "");
+      const title = cleanString(chunk && chunk.web && chunk.web.title || "", { max: 220 }) || "Fonte consultada";
+      try { if (!["https:", "http:"].includes(new URL(url).protocol)) return null; } catch { return null; }
+      if (seen.has(url)) return null;
+      seen.add(url);
+      return { title, url, excerpt: "", role: "context" };
+    }).filter(Boolean).slice(0, 8);
+    const supporting = mapGroundingSourceLabels(p.supporting_source_titles, sources).map((item) => Object.assign({}, item, { role: "support" }));
+    const contradictory = mapGroundingSourceLabels(p.contradictory_source_titles, sources).map((item) => Object.assign({}, item, { role: "contradict" }));
+    const verdicts = new Set(["verdadeira", "falsa", "enganosa", "fora_de_contexto", "inconclusiva", "nao_verificada", "opiniao_previsao"]);
+    let verdict = verdicts.has(p.verdict) ? p.verdict : "inconclusiva";
+    let confidence = ["baixa", "media", "alta"].includes(p.confidence) ? p.confidence : "baixa";
+    const backed = sources.length >= 2 &&
+      ((verdict === "verdadeira" && supporting.length > 0) ||
+       (verdict === "falsa" && contradictory.length > 0) ||
+       (["enganosa", "fora_de_contexto"].includes(verdict) && supporting.length > 0 && contradictory.length > 0) ||
+       ["inconclusiva", "nao_verificada", "opiniao_previsao"].includes(verdict));
+    if (!backed) { verdict = "inconclusiva"; confidence = "baixa"; }
+    return { verdict, confidence,
+      explanation: cleanString(p.explanation || "", { max: 600 }) || "A pesquisa não encontrou evidência suficiente para uma conclusão segura.",
+      supporting_evidence: cleanString(p.supporting_evidence || "", { max: 350 }) || "",
+      contradictory_evidence: cleanString(p.contradictory_evidence || "", { max: 350 }) || "",
+      context_note: cleanString(p.context_note || "", { max: 300 }) || "",
+      supporting_sources: supporting, contradictory_sources: contradictory, searched_sources: sources,
+      verified_at: new Date().toISOString(), method: "Gemini com Google Search e fontes vinculadas ao retorno de grounding", model: result.model
+    };
+  } catch (error) {
+    console.warn("Checagem automática não concluída:", error && error.name || "Error", String(error && error.message || "").slice(0, 180));
+    return { verdict: "nao_verificada", confidence: "baixa",
+      explanation: "A fala foi identificada, mas a pesquisa externa não retornou evidências suficientes ou o serviço ficou indisponível.",
+      supporting_evidence: "", contradictory_evidence: "", context_note: "",
+      supporting_sources: [], contradictory_sources: [], searched_sources: [],
+      verified_at: new Date().toISOString(), method: "pesquisa externa indisponível" };
+  }
+}
+function makePersistentCardData(review) {
+  const claim = review.candidate_claim ? {
+    speaker: review.candidate_claim.speaker, quote: review.candidate_claim.quote.slice(0, 420),
+    context: (review.candidate_claim.context || "").slice(0, 350), claim_type: review.candidate_claim.claim_type,
+    timestamp: review.candidate_claim.timestamp || "", verifiable: review.candidate_claim.verifiable,
+    fact_check: review.fact_check ? {
+      verdict: review.fact_check.verdict, confidence: review.fact_check.confidence,
+      explanation: (review.fact_check.explanation || "").slice(0, 600),
+      supporting_evidence: (review.fact_check.supporting_evidence || "").slice(0, 350),
+      contradictory_evidence: (review.fact_check.contradictory_evidence || "").slice(0, 350),
+      context_note: (review.fact_check.context_note || "").slice(0, 300),
+      supporting_sources: (review.fact_check.supporting_sources || []).slice(0, 2).map((x) => ({ title: x.title.slice(0, 140), url: x.url.slice(0, 500) })),
+      contradictory_sources: (review.fact_check.contradictory_sources || []).slice(0, 2).map((x) => ({ title: x.title.slice(0, 140), url: x.url.slice(0, 500) })),
+      searched_sources: (review.fact_check.searched_sources || []).slice(0, 4).map((x) => ({ title: x.title.slice(0, 140), url: x.url.slice(0, 500) })),
+      verified_at: review.fact_check.verified_at || "", method: review.fact_check.method || ""
+    } : null
+  } : null;
+  return { version: 1, media_url: String(review.media_url || "").slice(0, 800), media_type: review.media_type || "link",
+    video_id: review.video_id || "", video_start: Number(review.video_start || 0),
+    video_source_url: String(review.video_source_url || "").slice(0, 800), image_url: String(review.image_url || "").slice(0, 800),
+    transcript_available: Boolean(review.transcript_available), claim };
+}
+function formatStructuredSourceSummary(review) {
+  const lines = [
+    "Categoria: " + review.category, review.event_date ? "Data mencionada: " + review.event_date : "",
+    review.people.length ? "Pessoas citadas: " + review.people.join(", ") : "",
+    review.organizations.length ? "Instituições citadas: " + review.organizations.join(", ") : "",
+    review.cases.length ? "Casos e processos: " + review.cases.join("; ") : "",
+    review.legal_status ? "Andamento mencionado pela fonte: " + review.legal_status : "",
+    "Resumo da fonte: " + review.summary, ...review.key_points.map((x) => "Ponto relevante: " + x),
+    review.source_limitations ? "Limites do material: " + review.source_limitations : "",
+    "Nota: resumo automatizado; não substitui as fontes originais."
+  ].filter(Boolean);
+  let base = lines.join("\n").slice(0, 2100);
+  let cardJson = JSON.stringify(makePersistentCardData(review));
+  if (cardJson.length > 2500) {
+    const compact = makePersistentCardData(review);
+    if (compact.claim && compact.claim.fact_check) {
+      compact.claim.fact_check.searched_sources = [];
+      compact.claim.fact_check.supporting_sources = compact.claim.fact_check.supporting_sources.slice(0, 1);
+      compact.claim.fact_check.contradictory_sources = compact.claim.fact_check.contradictory_sources.slice(0, 1);
+      compact.claim.fact_check.explanation = compact.claim.fact_check.explanation.slice(0, 350);
+    }
+    cardJson = JSON.stringify(compact);
+  }
+  const maxBase = Math.max(0, 3500 - cardJson.length - "\nFICHA_AUTO_JSON:".length);
+  base = base.slice(0, maxBase);
+  return base + "\nFICHA_AUTO_JSON:" + cardJson;
+}
+
 const processSourcesLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
