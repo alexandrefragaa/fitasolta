@@ -51,11 +51,10 @@ test("backend respects the explicit Vercel trust-proxy setting", () => {
 });
 
 test("published checks expose a control to inspect registered sources and evidence", () => {
-  const html = readFileSync(new URL("../public/debates.html", import.meta.url), "utf8");
-  assert.match(html, /Ver fontes registradas/);
-  assert.match(html, /\/api\/claims\/.*encodeURIComponent/);
-  assert.match(html, /Evidência favorável/);
-  assert.match(html, /Limitações\/evidências contrárias/);
+  assert.match(debateScript, /Ver fontes registradas/);
+  assert.match(debateScript, /\/api\/claims\/.*encodeURIComponent/);
+  assert.match(debateScript, /Evidência favorável/);
+  assert.match(debateScript, /Limitações\/evidências contrárias/);
 });
 
 test("editorial decisions are recorded against the latest review", () => {
