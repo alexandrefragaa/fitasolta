@@ -1167,7 +1167,7 @@ const processSourcesLimiter = rateLimit({
 
 
 async function processSourceItems(req,sources){
- const results=[],verificationBudget={remaining:1};
+ const results=[],verificationBudget={remaining:Math.min(3,sources.length)};
  for(const source of sources){try{
   await updateTursoSource(source.id,"processing",source.title,source.summary,"");
   let extracted;
