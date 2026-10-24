@@ -315,6 +315,8 @@
     fillSelect("#event-case", casesCache.map(x => ({value:x.id,label:x.title + " [" + statusLabel(x.editorial_status) + "]"})), "Selecione um caso");
     fillSelect("#clip-case", casesCache.map(x => ({value:x.id,label:x.title})), "Sem caso associado");
     fillSelect("#role-person", peopleCache.map(x => ({value:x.id,label:x.name + " [" + statusLabel(x.editorial_status) + "]"})), "Selecione uma pessoa");
+    fillSelect("#case-claim-case", casesCache.map(x => ({value:x.id,label:x.title + " [" + statusLabel(x.editorial_status) + "]"})), "Selecione um caso");
+    fillSelect("#case-claim-claim", claimsCache.map(x => ({value:x.id,label:x.speaker + ": " + x.quote.slice(0,70) + " [" + statusLabel(x.status) + "]"})), "Selecione uma checagem");
     fillSelect("#clip-claim", claimsCache.map(x => ({value:x.id,label:x.speaker + ": " + x.quote.slice(0,70)})), "Sem checagem associada");
     fillSelect("#relation-first", claimsCache.map(x => ({value:x.id,label:x.speaker + ": " + x.quote.slice(0,70) + " [" + statusLabel(x.status) + "]"})), "Selecione a primeira checagem");
     fillSelect("#relation-second", claimsCache.map(x => ({value:x.id,label:x.speaker + ": " + x.quote.slice(0,70) + " [" + statusLabel(x.status) + "]"})), "Selecione a segunda checagem");
@@ -520,6 +522,20 @@
         event.currentTarget.reset();
         await refreshAll();
       } catch (error) { setStatus("role-form-status", error.message, true); }
+    });
+    $("#case-claim-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const body = formBody(event.currentTarget);
+      const caseId = body.case_id;
+      delete body.case_id;
+      const claimId = body.claim_id;
+      delete body.claim_id;
+      try {
+        await sendJson("/api/admin/cases/" + encodeURIComponent(caseId) + "/claims", "POST", { claim_id: claimId });
+        setStatus("case-claim-form-status", "Checagem vinculada ao caso. O vínculo não foi publicado automaticamente.");
+        event.currentTarget.reset();
+        await refreshAll();
+      } catch (error) { setStatus("case-claim-form-status", error.message, true); }
     });
     $("#event-form").addEventListener("submit", async event => {
       event.preventDefault();
