@@ -775,11 +775,13 @@ function isAllowedSourceUrl(value) {
 }
 
 
+
 function parseYouTubeReference(rawUrl) {
   const safe = sanitizeTursoSourceUrl(rawUrl);
   if (!safe) return null;
   try {
-    const url = new URL(safe), host = url.hostname.toLowerCase().replace(/^www\./, "").replace(/^m\./, "");
+    const url = new URL(safe);
+    const host = url.hostname.toLowerCase().replace(/^www\./, "").replace(/^m\./, "");
     let id = "";
     if (host === "youtu.be") id = url.pathname.split("/").filter(Boolean)[0] || "";
     else if (host === "youtube.com" || host === "youtube-nocookie.com") {
@@ -798,8 +800,12 @@ function parseYouTubeReference(rawUrl) {
     return { video_id: id, video_start: Math.max(0, start), video_url: "https://www.youtube.com/watch?v=" + id + (start ? "&t=" + start + "s" : "") };
   } catch { return null; }
 }
+
 function htmlDecode(value) {
-  return String(value || "").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&nbsp;/gi, " ").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/\\u0026/gi, "&").replace(/\\\//g, "/");
+  return String(value || "").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&nbsp;/gi, " ")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/\\u0026/gi, "&").replace(/\\\//g, "/");
 }
 function getHtmlAttribute(tag, attribute) {
   const match = String(tag || "").match(new RegExp("(?:^|\\s)" + attribute + "\\s*=\\s*([\\\"'])([\\s\\S]*?)\\1", "i"));
@@ -807,97 +813,141 @@ function getHtmlAttribute(tag, attribute) {
 }
 function findMetaContent(raw, names) {
   const wanted = new Set(names.map((name) => name.toLowerCase()));
-  for (const tag of String(raw || "").match(/<meta\\b[^>]*>/gi) || []) {
+  for (const tag of String(raw || "").match(/<meta\b[^>]*>/gi) || []) {
     const name = (getHtmlAttribute(tag, "property") || getHtmlAttribute(tag, "name") || getHtmlAttribute(tag, "itemprop")).toLowerCase();
-    if (wanted.has(name)) { const content = getHtmlAttribute(tag, "content"); if (content) return content; }
+    if (!wanted.has(name)) continue;
+    const content = getHtmlAttribute(tag, "content");
+    if (content) return content;
   }
   return "";
 }
 function formatTranscriptTime(seconds) {
-  const total = Math.max(0, Math.floor(Number(seconds) || 0)), h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), sec = total % 60;
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), sec = total % 60;
   return [h, m, sec].map((v) => String(v).padStart(2, "0")).join(":");
 }
 async function fetchYouTubeTranscriptFromHtml(html) {
-  const match = String(html || "").match(/"captionTracks":(\\[[\\s\\S]*?\\])\\s*,\\s*"audioTracks"/);
+  const match = String(html || "").match(/"captionTracks":(\[[\s\S]*?\])\s*,\s*"audioTracks"/);
   if (!match) return "";
-  let tracks; try { tracks = JSON.parse(match[1]); } catch { return ""; }
+  let tracks;
+  try { tracks = JSON.parse(match[1]); } catch { return ""; }
   if (!Array.isArray(tracks) || !tracks.length) return "";
-  const rank = (t) => { const lang = String(t.languageCode || "").toLowerCase(); return lang === "pt-br" ? 0 : lang === "pt" ? 1 : lang.startsWith("pt") ? 2 : lang === "en" ? 3 : 4; };
-  tracks.sort((a,b) => rank(a)-rank(b));
-  for (const track of tracks.slice(0,3)) {
-    let url; try { url = new URL(String(track.baseUrl || "")); } catch { continue; }
-    if (!["youtube.com","www.youtube.com","youtube-nocookie.com","www.youtube-nocookie.com"].includes(url.hostname.toLowerCase()) || url.pathname !== "/api/timedtext") continue;
-    url.searchParams.set("fmt","json3");
+  const rank = (t) => {
+    const lang = String(t.languageCode || "").toLowerCase();
+    return lang === "pt-br" ? 0 : lang === "pt" ? 1 : lang.startsWith("pt") ? 2 : lang === "en" ? 3 : 4;
+  };
+  tracks.sort((a, b) => rank(a) - rank(b));
+  for (const track of tracks.slice(0, 3)) {
+    let url;
+    try { url = new URL(String(track.baseUrl || "")); } catch { continue; }
+    if (!["youtube.com", "www.youtube.com", "youtube-nocookie.com", "www.youtube-nocookie.com"].includes(url.hostname.toLowerCase()) || url.pathname !== "/api/timedtext") continue;
+    url.searchParams.set("fmt", "json3");
     try {
-      const response = await fetch(url.href,{headers:{"User-Agent":"FitaSoltaEvidenceBot/1.0",Accept:"application/json, application/xml, text/xml;q=0.9"},signal:AbortSignal.timeout(7000)});
+      const response = await fetch(url.href, {
+        headers: { "User-Agent": "FitaSoltaEvidenceBot/1.0", Accept: "application/json, application/xml, text/xml;q=0.9" },
+        signal: AbortSignal.timeout(7000)
+      });
       if (!response.ok) continue;
-      const body=(await response.text()).slice(0,1000000); let segments=[];
+      const body = (await response.text()).slice(0, 1000000);
+      let segments = [];
       try {
-        const data=JSON.parse(body);
-        segments=(Array.isArray(data.events)?data.events:[]).flatMap((event)=>{
-          const text=(event.segs||[]).map((seg)=>seg.utf8||"").join("").replace(/\\s+/g," ").trim(),time=Number(event.tStartMs||0)/1000;
-          return text?[{time,text}]:[];
-        }).slice(0,300);
+        const data = JSON.parse(body);
+        segments = (Array.isArray(data.events) ? data.events : []).flatMap((event) => {
+          const text = (event.segs || []).map((seg) => seg.utf8 || "").join("").replace(/\s+/g, " ").trim();
+          const time = Number(event.tStartMs || 0) / 1000;
+          return text ? [{ time, text }] : [];
+        }).slice(0, 300);
       } catch {
-        for(const item of body.matchAll(/<text\\b([^>]*)>([\\s\\S]*?)<\\/text>/gi)){
-          const time=Number(getHtmlAttribute(item[1],"start")),text=htmlDecode(item[2].replace(/<[^>]+>/g," ")).replace(/\\s+/g," ").trim();
-          if(text&&Number.isFinite(time))segments.push({time,text}); if(segments.length>=300)break;
+        for (const item of body.matchAll(/<text\b([^>]*)>([\s\S]*?)<\/text>/gi)) {
+          const time = Number(getHtmlAttribute(item[1], "start"));
+          const text = htmlDecode(item[2].replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+          if (text && Number.isFinite(time)) segments.push({ time, text });
+          if (segments.length >= 300) break;
         }
       }
-      const transcript=segments.filter((x)=>x.text&&!/^\\[.*?\\]$/.test(x.text)).map((x)=>"["+formatTranscriptTime(x.time)+"] "+x.text).join("\\n").slice(0,10000);
-      if(transcript.length>=80)return transcript;
+      const transcript = segments.filter((item) => item.text && !/^\[.*?\]$/.test(item.text))
+        .map((item) => "[" + formatTranscriptTime(item.time) + "] " + item.text).join("\n").slice(0, 10000);
+      if (transcript.length >= 80) return transcript;
     } catch {}
   }
   return "";
 }
 async function fetchYouTubeTranscriptById(videoId) {
-  if (!/^[A-Za-z0-9_-]{11}$/.test(String(videoId||""))) return "";
+  if (!/^[A-Za-z0-9_-]{11}$/.test(String(videoId || ""))) return "";
   try {
-    const r=await fetch("https://www.youtube.com/watch?v="+encodeURIComponent(videoId),{headers:{"User-Agent":"Mozilla/5.0 (compatible; FitaSoltaEvidenceBot/1.0)",Accept:"text/html"},signal:AbortSignal.timeout(7000)});
-    if(!r.ok)return "";
-    return fetchYouTubeTranscriptFromHtml((await r.text()).slice(0,600000));
+    const response = await fetch("https://www.youtube.com/watch?v=" + encodeURIComponent(videoId), {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; FitaSoltaEvidenceBot/1.0)", Accept: "text/html" },
+      signal: AbortSignal.timeout(7000)
+    });
+    if (!response.ok) return "";
+    return fetchYouTubeTranscriptFromHtml((await response.text()).slice(0, 600000));
   } catch { return ""; }
 }
 async function downloadImageForAnalysis(rawUrl) {
-  if(!isAllowedSourceUrl(rawUrl))return null;
+  if (!isAllowedSourceUrl(rawUrl)) return null;
   try {
-    const r=await fetch(rawUrl,{headers:{"User-Agent":"FitaSoltaEvidenceBot/1.0",Accept:"image/png,image/jpeg,image/webp,image/gif"},redirect:"manual",signal:AbortSignal.timeout(7000)});
-    if(!r.ok)return null;
-    const mimeType=(r.headers.get("content-type")||"").split(";")[0].trim().toLowerCase();
-    if(!["image/jpeg","image/png","image/webp","image/gif"].includes(mimeType)||Number(r.headers.get("content-length")||0)>4194304)return null;
-    const buffer=Buffer.from(await r.arrayBuffer()); if(!buffer.length||buffer.length>4194304)return null;
-    return {mimeType,data:buffer.toString("base64")};
+    const response = await fetch(rawUrl, {
+      headers: { "User-Agent": "FitaSoltaEvidenceBot/1.0", Accept: "image/png,image/jpeg,image/webp,image/gif" },
+      redirect: "manual", signal: AbortSignal.timeout(7000)
+    });
+    if (!response.ok) return null;
+    const mimeType = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(mimeType) || Number(response.headers.get("content-length") || 0) > 4194304) return null;
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (!buffer.length || buffer.length > 4194304) return null;
+    return { mimeType, data: buffer.toString("base64") };
   } catch { return null; }
 }
 async function extractSourcePage(rawUrl) {
-  let currentUrl=rawUrl;
-  for(let hop=0;hop<4;hop+=1) {
-    if(!isAllowedSourceUrl(currentUrl))throw new Error("URL externa inválida ou não permitida.");
-    const response=await fetch(currentUrl,{headers:{"User-Agent":"FitaSoltaEvidenceBot/1.0",Accept:"text/html,application/xhtml+xml,text/plain,image/png,image/jpeg,image/webp;q=0.8"},redirect:"manual",signal:AbortSignal.timeout(12000)});
-    if([301,302,303,307,308].includes(response.status)){const loc=response.headers.get("location");if(!loc||hop===3)throw new Error("A fonte redirecionou muitas vezes.");currentUrl=new URL(loc,currentUrl).href;continue;}
-    if(!response.ok)throw new Error("A fonte respondeu HTTP "+response.status+".");
-    const type=(response.headers.get("content-type")||"").split(";")[0].trim().toLowerCase();
-    if(type.startsWith("image/")){
-      if(Number(response.headers.get("content-length")||0)>4194304)throw new Error("A imagem excede 4 MB.");
-      const buf=Buffer.from(await response.arrayBuffer());if(!buf.length||buf.length>4194304)throw new Error("A imagem excede 4 MB.");
-      return {title:"Imagem enviada ao FitaSolta",text:"Imagem fornecida como material de análise. Descreva apenas o que é visível e legível; não infira identidade, data ou contexto não visível.",url:currentUrl,original_url:currentUrl,media_url:currentUrl,media_type:"image",image_url:currentUrl,imageData:{mimeType:type,data:buf.toString("base64")},video_id:"",video_start:0,transcript_available:false};
+  let currentUrl = rawUrl;
+  for (let hop = 0; hop < 4; hop += 1) {
+    if (!isAllowedSourceUrl(currentUrl)) throw new Error("URL externa inválida ou não permitida.");
+    const response = await fetch(currentUrl, {
+      headers: { "User-Agent": "FitaSoltaEvidenceBot/1.0", Accept: "text/html,application/xhtml+xml,text/plain,image/png,image/jpeg,image/webp;q=0.8" },
+      redirect: "manual", signal: AbortSignal.timeout(12000)
+    });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get("location");
+      if (!location || hop === 3) throw new Error("A fonte redirecionou muitas vezes.");
+      currentUrl = new URL(location, currentUrl).href;
+      continue;
     }
-    if(!/text\\/html|application\\/xhtml\\+xml|text\\/plain/i.test(type))throw new Error("A URL não retornou HTML, texto ou imagem legível.");
-    const raw=(await response.text()).slice(0,600000);
-    const decode=(v)=>htmlDecode(v).replace(/<[^>]+>/g," ").replace(/\\s+/g," ").trim();
-    const title=decode(findMetaContent(raw,["og:title","twitter:title"])||(raw.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i)||[])[1]||"").slice(0,300);
-    const imageCandidate=findMetaContent(raw,["og:image","og:image:secure_url","twitter:image"]); let imageUrl="";
-    if(imageCandidate){try{const u=new URL(imageCandidate,currentUrl);if(u.protocol==="https:"&&!u.username&&!u.password)imageUrl=u.href}catch{}}
-    let video=parseYouTubeReference(currentUrl),explicitVideoUrl="";
-    const candidates=[...raw.matchAll(/(?:src|href|content|data-src)\\s*=\\s*["']([^"']*(?:youtube\\.com|youtu\\.be|youtube-nocookie\\.com)[^"']*)["']/gi)].slice(0,40);
-    for(const item of candidates){let u;try{u=new URL(htmlDecode(item[1]).replace(/\\\\u0026/g,"&"),currentUrl)}catch{continue}const found=parseYouTubeReference(u.href);if(found){video=found;explicitVideoUrl=u.href;break}}
-    if(!video){const og=findMetaContent(raw,["og:video","og:video:url","og:video:secure_url","twitter:player"]);if(og){try{const found=parseYouTubeReference(new URL(og,currentUrl).href);if(found){video=found;explicitVideoUrl=og}}catch{}}}
-    const isYT=Boolean(parseYouTubeReference(currentUrl));let transcript=isYT?await fetchYouTubeTranscriptFromHtml(raw):"";
-    if(!transcript&&video&&!isYT)transcript=await fetchYouTubeTranscriptById(video.video_id);
-    const pageText=decode(raw.replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi," ").replace(/<style\\b[^>]*>[\\s\\S]*?<\\/style>/gi," ").replace(/<noscript\\b[^>]*>[\\s\\S]*?<\\/noscript>/gi," ").replace(/<[^>]+>/g," ")).slice(0,12000);
-    const text=isYT?(transcript||(title+"\\nTranscrição pública não disponível. Não invente falas, citações ou timestamps.")):[pageText,transcript?"\\nTRANSCRIÇÃO DO VÍDEO INCORPORADO (legendas públicas):\\n"+transcript:""].join("\\n").slice(0,18000);
-    if(!isYT&&text.length<150)throw new Error("Não foi possível extrair texto suficiente da página.");
-    return {title:title||currentUrl,text,url:currentUrl,original_url:currentUrl,media_url:video?video.video_url:"",media_type:video?"video":imageUrl?"image":"link",image_url:imageUrl,video_id:video?video.video_id:"",video_start:video?video.video_start:0,video_source_url:explicitVideoUrl||(video?video.video_url:""),transcript_available:Boolean(transcript),transcript};
+    if (!response.ok) throw new Error("A fonte respondeu HTTP " + response.status + ".");
+    const contentType = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+    if (contentType.startsWith("image/")) {
+      if (Number(response.headers.get("content-length") || 0) > 4194304) throw new Error("A imagem excede 4 MB.");
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (!buffer.length || buffer.length > 4194304) throw new Error("A imagem excede 4 MB.");
+      return { title: "Imagem enviada ao FitaSolta", text: "Imagem fornecida como material de análise. Descreva apenas o que é visível e legível; não infira identidade, data ou contexto não visível.", url: currentUrl, original_url: currentUrl, media_url: currentUrl, media_type: "image", image_url: currentUrl, imageData: { mimeType: contentType, data: buffer.toString("base64") }, video_id: "", video_start: 0, transcript_available: false };
+    }
+    if (!/text\/html|application\/xhtml\+xml|text\/plain/i.test(contentType)) throw new Error("A URL não retornou HTML, texto ou imagem legível.");
+    const raw = (await response.text()).slice(0, 600000);
+    const decode = (value) => htmlDecode(value).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const title = decode(findMetaContent(raw, ["og:title", "twitter:title"]) || (raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || "").slice(0, 300);
+    const imageCandidate = findMetaContent(raw, ["og:image", "og:image:secure_url", "twitter:image"]);
+    let imageUrl = "";
+    if (imageCandidate) {
+      try { const candidate = new URL(imageCandidate, currentUrl); if (candidate.protocol === "https:" && !candidate.username && !candidate.password) imageUrl = candidate.href; } catch {}
+    }
+    let video = parseYouTubeReference(currentUrl), explicitVideoUrl = "";
+    const candidates = [...raw.matchAll(/(?:src|href|content|data-src)\s*=\s*["']([^"']*(?:youtube\.com|youtu\.be|youtube-nocookie\.com)[^"']*)["']/gi)].slice(0, 40);
+    for (const item of candidates) {
+      let parsedUrl;
+      try { parsedUrl = new URL(htmlDecode(item[1]).replace(/\\u0026/g, "&"), currentUrl); } catch { continue; }
+      const found = parseYouTubeReference(parsedUrl.href);
+      if (found) { video = found; explicitVideoUrl = parsedUrl.href; break; }
+    }
+    if (!video) {
+      const ogVideo = findMetaContent(raw, ["og:video", "og:video:url", "og:video:secure_url", "twitter:player"]);
+      if (ogVideo) { try { const found = parseYouTubeReference(new URL(ogVideo, currentUrl).href); if (found) { video = found; explicitVideoUrl = ogVideo; } } catch {} }
+    }
+    const isYouTubePage = Boolean(parseYouTubeReference(currentUrl));
+    let transcript = isYouTubePage ? await fetchYouTubeTranscriptFromHtml(raw) : "";
+    if (!transcript && video && !isYouTubePage) transcript = await fetchYouTubeTranscriptById(video.video_id);
+    const pageText = decode(raw.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ").replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ").replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, " ").replace(/<[^>]+>/g, " ")).slice(0, 12000);
+    const text = isYouTubePage ? (transcript || (title + "\nTranscrição pública não disponível. Não invente falas, citações ou timestamps.")) : [pageText, transcript ? "\nTRANSCRIÇÃO DO VÍDEO INCORPORADO (legendas públicas):\n" + transcript : ""].join("\n").slice(0, 18000);
+    if (!isYouTubePage && text.length < 150) throw new Error("Não foi possível extrair texto suficiente da página.");
+    return { title: title || currentUrl, text, url: currentUrl, original_url: currentUrl, media_url: video ? video.video_url : "", media_type: video ? "video" : imageUrl ? "image" : "link", image_url: imageUrl, video_id: video ? video.video_id : "", video_start: video ? video.video_start : 0, video_source_url: explicitVideoUrl || (video ? video.video_url : ""), transcript_available: Boolean(transcript), transcript };
   }
   throw new Error("Não foi possível abrir a fonte.");
 }
