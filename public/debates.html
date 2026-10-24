@@ -153,6 +153,11 @@
   byId("export-status").dataset.text=output;
  });
  byId("export-record").addEventListener("click",()=>{
+  const form=byId("claim-form");
+  if (!form.reportValidity()) {
+   byId("export-status").textContent="Preencha os campos obrigatórios e confira o timestamp antes de exportar.";
+   return;
+  }
   const data=record();
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json;charset=utf-8"});
   const url=URL.createObjectURL(blob);
