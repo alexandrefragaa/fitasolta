@@ -41,15 +41,16 @@ app.disable("x-powered-by");
 if (IS_PRODUCTION) app.set("trust proxy", 1);
 
 
-// Use os nomes atuais da integração Turso/Vercel, com compatibilidade
-// para os nomes legados usados nas primeiras versões do projeto.
-const TURSO_URL = process.env.TURSO_DATABASE_URL || process.env.HOST_TURSO;
-const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN || process.env.TOKEN_TURSO;
+// Use um par URL/token do mesmo banco. Não misture aliases, pois o
+// HOST_TURSO pode apontar para um banco distinto do TURSO_DATABASE_URL.
+const hasLegacyTursoPair = Boolean(process.env.HOST_TURSO && process.env.TOKEN_TURSO);
+const TURSO_URL = hasLegacyTursoPair ? process.env.HOST_TURSO : process.env.TURSO_DATABASE_URL;
+const TURSO_TOKEN = hasLegacyTursoPair ? process.env.TOKEN_TURSO : process.env.TURSO_AUTH_TOKEN;
 
 if (!TURSO_URL || !TURSO_TOKEN) {
   throw new Error(
-    "Configuração do Turso incompleta: defina TURSO_DATABASE_URL e TURSO_AUTH_TOKEN " +
-    "(ou os aliases legados HOST_TURSO e TOKEN_TURSO) neste ambiente."
+    "Configuração do Turso incompleta: configure TURSO_DATABASE_URL e TURSO_AUTH_TOKEN " +
+    "(ou configure juntos HOST_TURSO e TOKEN_TURSO) neste ambiente."
   );
 }
 
