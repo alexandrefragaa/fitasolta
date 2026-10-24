@@ -455,8 +455,16 @@ test("libSQL persistence survives restart and keeps the editorial publication ga
   const restartedRelations = await requestJson(baseUrl, "/api/relationships");
   assert.ok(restartedRelations.body.relationships.some((item) => item.id === relationId));
 
-  const restartedClaim = await requestJson(baseUrl, "/api/claims/" + claimId);
-  assert.equal(restartedClaim.response.status, 200);
-  assert.equal(restartedClaim.body.claim.id, claimId);
-  assert.equal(restartedClaim.body.sources.length, 2);
+  const restartedCase = await requestJson(baseUrl, "/api/cases/" + caseId);
+  assert.equal(restartedCase.response.status, 200);
+  assert.equal(restartedCase.body.case.id, caseId);
+  assert.ok(restartedCase.body.people.some((item) => item.entity_id === personId));
+  assert.ok(restartedCase.body.events.some((item) => item.id === event.body.id));
+  assert.ok(restartedCase.body.clips.some((item) => item.id === clip.body.id));
+
+  const restartedContradictions = await requestJson(baseUrl, "/api/contradictions");
+  assert.ok(restartedContradictions.body.contradictions.some((item) => item.id === relationDraft.body.id));
+
+  const restartedClips = await requestJson(baseUrl, "/api/clips");
+  assert.ok(restartedClips.body.clips.some((item) => item.id === clip.body.id));
 });
