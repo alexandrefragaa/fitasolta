@@ -1026,7 +1026,7 @@ function mapGroundingSourceLabels(labels, sources) {
       const title = normalizeGroundingLabel(source.title);
       let host = "";
       try { host = normalizeGroundingLabel(new URL(source.url).hostname.replace(/^www\./, "")); } catch {}
-      return (title && (title === needle || title.includes(needle) || needle.includes(title)) ||
+      return Boolean((title && (title === needle || title.includes(needle) || needle.includes(title))) ||
         (host && (host === needle || host.includes(needle) || needle.includes(host)));
     });
     if (item && !found.some((entry) => entry.url === item.url)) found.push(item);
