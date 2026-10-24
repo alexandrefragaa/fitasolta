@@ -687,7 +687,7 @@ app.post("/api/admin/verify-evidence", verificationLimiter, requireCsrf, require
     "Não trate alegação, investigação ou denúncia como condenação. Diferencie suspeita, acusação, decisão provisória, condenação, absolvição, soltura e anulação.",
     "Se o trecho não sustentar a afirmação, indique insuficiência; não conclua que a afirmação é falsa só porque o trecho não a menciona.",
     "Em soltura ou anulação, só informe o fundamento se estiver explícito no trecho. A soltura não implica absolvição.",
-    "Retorne somente JSON válido com: verdict ("sustentada" | "parcialmente_sustentada" | "nao_sustentada_pelo_trecho" | "contradita_pelo_trecho" | "inconclusiva"), confidence ("baixa" | "media" | "alta"), explanation (string curta), supported_points (array de strings), missing_points (array de strings), cautions (array de strings), suggested_rewrite (string), source_limitations (string).",
+    `Retorne somente JSON válido com os campos: verdict (um de sustentada, parcialmente_sustentada, nao_sustentada_pelo_trecho, contradita_pelo_trecho, inconclusiva), confidence (baixa, media ou alta), explanation (string curta), supported_points (array de strings), missing_points (array de strings), cautions (array de strings), suggested_rewrite (string), source_limitations (string).`,
     "Não atribua culpa criminal a pessoa sem que o trecho e o status jurídico permitam. Redija a resposta de forma neutra.",
     "Afirmação a revisar: " + claim,
     "Contexto do registro: " + (context || "(não informado)"),
@@ -736,6 +736,135 @@ app.post("/api/admin/verify-evidence", verificationLimiter, requireCsrf, require
     console.error("Gemini evidence review failed:", error?.name || "Error");
     res.status(502).json({ error: "Falha de conexão ao serviço de revisão. Tente novamente." });
   }
+});
+
+
+async function updateTursoSource(id, status, title, summary, errorMessage) {
+  const sql = "UPDATE source_queue SET status = ?, title = ?, summary = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+  const args = [status, title || "", summary || "", errorMessage || "", id].map((value) => ({ type: "text", value: String(value) }));
+  const response = await fetch(getTursoSourcesBaseUrl() + "/v2/pipeline", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + TURSO_AUTH_TOKEN.trim(),
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify({ requests: [{ type: "execute", stmt: { sql, args } }, { type: "close" }] }),
+    signal: AbortSignal.timeout(15000)
+  });
+  if (!response.ok) throw new Error("Falha ao atualizar Turso (HTTP " + response.status + ").");
+  const payload = await response.json();
+  if (payload?.results?.[0]?.type !== "ok") throw new Error("O Turso rejeitou a atualização.");
+}
+
+function isAllowedSourceUrl(value) {
+  const safe = sanitizeTursoSourceUrl(value);
+  if (!safe) return false;
+  try {
+    const url = new URL(safe);
+    const host = url.hostname.toLowerCase();
+    if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) return false;
+    if (/^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || host === "::1" || host.startsWith("fc") || host.startsWith("fd")) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function extractSourcePage(rawUrl) {
+  let currentUrl = rawUrl;
+  for (let hop = 0; hop < 4; hop += 1) {
+    if (!isAllowedSourceUrl(currentUrl)) throw new Error("URL externa inválida ou não permitida.");
+    const response = await fetch(currentUrl, {
+      headers: { "User-Agent": "FitaSoltaEvidenceBot/1.0", Accept: "text/html,application/xhtml+xml,text/plain;q=0.9" },
+      redirect: "manual",
+      signal: AbortSignal.timeout(12000)
+    });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get("location");
+      if (!location || hop === 3) throw new Error("A fonte redirecionou muitas vezes.");
+      currentUrl = new URL(location, currentUrl).href;
+      continue;
+    }
+    if (!response.ok) throw new Error("A fonte respondeu HTTP " + response.status + ".");
+    const contentType = response.headers.get("content-type") || "";
+    if (!/text\/html|application\/xhtml\+xml|text\/plain/i.test(contentType)) throw new Error("A URL não retornou HTML ou texto legível.");
+    const raw = (await response.text()).slice(0, 600000);
+    const decode = (value) => value.replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'").replace(/&lt;/gi, "<").replace(/&gt;/gi, " ");
+    const title = decode((raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()).slice(0, 300);
+    const text = decode(raw.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ").replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ").replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()).slice(0, 12000);
+    if (text.length < 150) throw new Error("Não foi possível extrair texto suficiente da página.");
+    return { title, text, url: currentUrl };
+  }
+  throw new Error("Não foi possível abrir a fonte.");
+}
+
+async function summarizeExtractedSource(source) {
+  const prompt = [
+    "Resuma esta fonte jornalística ou documental em português brasileiro usando somente o texto extraído. Não invente fatos.",
+    "Retorne JSON válido com title (string curta), summary (2 a 4 frases neutras, até 900 caracteres) e limitations (array de até 3 ressalvas). Diferencie alegação, investigação, acusação, decisão, condenação, absolvição e anulação.",
+    "URL: " + source.url,
+    "Título HTML: " + (source.title || "(ausente)"),
+    "Texto extraído:\n" + source.text
+  ].join("\n\n");
+  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY.trim() },
+    body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, responseMimeType: "application/json" } }),
+    signal: AbortSignal.timeout(30000)
+  });
+  if (!response.ok) throw new Error("Gemini respondeu HTTP " + response.status + ".");
+  const payload = await response.json();
+  const raw = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
+  if (!raw) throw new Error("Gemini retornou resposta vazia.");
+  const parsed = JSON.parse(raw);
+  return {
+    title: cleanString(parsed.title || source.title || source.url, { max: 300 }) || source.url,
+    summary: cleanString(parsed.summary || "", { max: 1000 }) || "Texto extraído, sem resumo disponível.",
+    limitations: Array.isArray(parsed.limitations) ? parsed.limitations.slice(0, 3).map((v) => cleanString(v, { max: 250 })).filter(Boolean) : []
+  };
+}
+
+const processSourcesLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas execuções. Aguarde antes de tentar novamente." }
+});
+
+app.post("/api/admin/process-sources", processSourcesLimiter, requireCsrf, requireAdmin, async (req, res) => {
+  if (!GEMINI_API_KEY.trim()) return res.status(503).json({ error: "Configure GEMINI_API_KEY nas variáveis de ambiente da Vercel antes de processar fontes." });
+  let pending;
+  try {
+    pending = (await readTursoSourceQueue()).filter((source) => source.status === "pending").slice(0, 3);
+  } catch {
+    return res.status(502).json({ error: "Não foi possível carregar a fila de fontes do Turso." });
+  }
+  if (!pending.length) return res.json({ ok: true, processed: 0, completed: 0, errors: 0, message: "Não há fontes pendentes." });
+  const results = [];
+  for (const source of pending) {
+    try {
+      await updateTursoSource(source.id, "processing", source.title, source.summary, "");
+      const extracted = await extractSourcePage(source.url);
+      const review = await summarizeExtractedSource(extracted);
+      const notes = review.limitations.length ? "Limitações: " + review.limitations.join("; ") : "";
+      await updateTursoSource(source.id, "completed", review.title, review.summary, notes);
+      audit(req, "source_processed", "source_queue", source.id);
+      results.push({ id: source.id, url: source.url, status: "completed", title: review.title });
+    } catch (error) {
+      const message = String(error?.message || "Falha no processamento").slice(0, 350);
+      await updateTursoSource(source.id, "error", source.title, source.summary, message).catch(() => {});
+      results.push({ id: source.id, url: source.url, status: "error", error: message });
+    }
+  }
+  res.set("Cache-Control", "no-store").json({
+    ok: true,
+    processed: results.length,
+    completed: results.filter((item) => item.status === "completed").length,
+    errors: results.filter((item) => item.status === "error").length,
+    results
+  });
 });
 
 app.get("/api/sources", async (req, res) => {

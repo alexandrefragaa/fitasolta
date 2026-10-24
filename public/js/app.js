@@ -35,6 +35,7 @@
     sourceQueueSearch: $("#source-queue-search"),
     sourceQueueList: $("#source-queue-list"),
     refreshSourceQueue: $("#refresh-source-queue"),
+    processSourceQueue: $("#process-source-queue"),
 
     search: $("#search"),
     searchButton: $("#search-button"),
@@ -618,6 +619,26 @@
       appendSourceLink(footer, source.url, "Abrir fonte");
       item.appendChild(footer);
       elements.sourceQueueList.appendChild(item);
+    }
+  }
+
+
+  async function processSourceQueue() {
+    if (!state.isAdmin || !elements.processSourceQueue) return;
+    setButtonLoading(elements.processSourceQueue, true, "Processando…");
+    setStatus(elements.sourceQueueStatus, "Extraindo páginas e analisando até 3 fontes com Gemini…");
+    try {
+      const data = await apiFetch("/admin/process-sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": state.csrfToken },
+        body: JSON.stringify({ limit: 3 })
+      });
+      await loadSourceQueue();
+      setStatus(elements.sourceQueueStatus, data.message || ("Lote concluído: " + (data.completed || 0) + " fontes processadas, " + (data.errors || 0) + " com erro."), Boolean(data.errors));
+    } catch (error) {
+      setStatus(elements.sourceQueueStatus, error.message || "Não foi possível processar as fontes.", true);
+    } finally {
+      setButtonLoading(elements.processSourceQueue, false);
     }
   }
 
@@ -1443,6 +1464,7 @@
     elements.refreshGraph?.addEventListener("click", loadPublicBoard);
     elements.refreshDocuments?.addEventListener("click", loadDocuments);
     elements.refreshSourceQueue?.addEventListener("click", loadSourceQueue);
+    elements.processSourceQueue?.addEventListener("click", processSourceQueue);
     elements.sourceQueueSearch?.addEventListener("input", renderSourceQueue);
 
     elements.searchButton?.addEventListener("click", () => { applySearch(); loadPublicBoard(); });
