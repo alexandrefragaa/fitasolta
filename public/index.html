@@ -6,7 +6,7 @@
 
   <meta
     name="description"
-    content="FitaSolta — Mural das Conexões. Um espaço de organização e consulta de informações baseadas em documentos, investigações e fontes públicas."
+    content="FitaSolta — organize pistas, documentos, fontes e conexões com rastreabilidade."
   >
   <meta
     name="referrer"
@@ -14,7 +14,7 @@
   >
   <meta name="theme-color" content="#0b0d12">
 
-  <title>FitaSolta — Mural das Conexões</title>
+  <title>FitaSolta — Toda fita deixa rastros</title>
 
   <link rel="stylesheet" href="/css/style.css">
 
@@ -36,29 +36,23 @@
     <nav aria-label="Navegação principal">
       <a href="#mapa">Mural</a>
       <a href="#fontes">Fontes externas</a>
-      <a href="/debates.html">Debates e checagens</a>
-
-      <button
-        id="admin-open"
-        class="button button-outline"
-        type="button"
-        aria-haspopup="dialog"
-        aria-controls="admin-dialog"
-      >
-        Área administrativa
-      </button>
+      <a href="/debates.html">Afirmações</a>
+      <a href="/comparar.html">Comparar</a>
+      <a href="/votacao.html">Temas ao vivo</a>
+      <a href="/revisao.html">Revisão editorial</a>
+      <button id="admin-open" class="button button-outline" type="button" aria-haspopup="dialog" aria-controls="admin-dialog">Área administrativa</button>
     </nav>
   </header>
 
   <main class="container">
     <!-- Apresentação e pesquisa -->
     <section class="hero" aria-labelledby="page-title">
-      <p class="eyebrow">MURAL DAS CONEXÕES · FONTES · DOCUMENTOS</p>
+      <p class="eyebrow">ARQUIVO ABERTO · FONTES · INVESTIGAÇÃO</p>
 
-      <h1 id="page-title">Conectando informações. Seguindo os fatos.</h1>
+      <h1 id="page-title">Siga as conexões. Descubra o que as fontes revelam.</h1>
 
       <p>
-        Bem-vindo ao FitaSolta, o Mural das Conexões: um espaço independente para organizar e compreender as relações entre pessoas, instituições, acontecimentos, casos e processos. Reunimos informações de fontes públicas, investigações, reportagens e documentos oficiais, preservando a origem e o contexto de cada registro.
+        O FitaSolta é um mural investigativo que reúne links e registros de fontes em um só lugar. Explore documentos, acompanhe o andamento de cada fonte e abra os materiais originais para conferir o contexto por conta própria.
       </p>
 
       <div class="search-row" role="search">
@@ -70,7 +64,7 @@
           id="search"
           name="search"
           type="search"
-          placeholder="Pesquisar nomes, categorias ou descrições…"
+          placeholder="Pesquisar pessoas, casos, crimes, decisões ou fontes…"
           autocomplete="off"
         >
 
@@ -84,7 +78,7 @@
       </div>
 
       <p class="notice">
-        O FitaSolta não é órgão oficial, autoridade policial, Ministério Público, tribunal nem instância que determine culpa. É uma ferramenta independente de organização de informações públicas. Uma conexão, por si só, não prova culpa, intenção ou participação criminosa. Consulte as fontes originais e considere o contexto.
+        Transparência primeiro: uma notícia, denúncia ou investigação não equivale a condenação. O mural exibe o que está registrado nas fontes disponíveis — não inventa dados que ainda não foram documentados.
       </p>
     </section>
 
@@ -96,8 +90,8 @@
     >
       <div class="section-heading">
         <div>
-          <p class="eyebrow">EXPLORAÇÃO</p>
-          <h2 id="graph-heading">Mural das Conexões</h2>
+          <p class="eyebrow">PAINEL CENTRAL</p>
+          <h2 id="graph-heading">Mural investigativo</h2>
         </div>
 
         <button
@@ -114,11 +108,8 @@
         aria-label="Legenda do mural"
       >
         <span class="legend-dot" aria-hidden="true"></span>
-        <span>Entidade</span>
-
-        <span class="muted">
-          Selecione um nó para consultar os detalhes.
-        </span>
+        <span>Fontes e registros</span>
+        <span class="muted">Pesquise, filtre e abra a fonte original.</span>
       </div>
 
       <div
@@ -133,10 +124,11 @@
           Carregando dados do servidor…
         </p>
       </div>
+      <div class="board-summary" id="board-summary" aria-live="polite">Conectando às fontes…</div>
+      <div id="public-source-list" class="public-source-list" aria-live="polite"><p class="empty-state">Carregando fontes do banco de dados…</p></div>
 
       <p id="graph-description" class="sr-only">
-        Explore as conexões registradas no mural. Selecione pessoas, instituições, casos e acontecimentos para consultar os detalhes
-        e as fontes disponíveis antes de interpretar uma relação.
+        Explore os registros disponíveis. Abra cada fonte original para verificar contexto, nomes, datas, decisões e andamento.
       </p>
 
       <div
@@ -144,6 +136,7 @@
         class="details"
         aria-live="polite"
         aria-atomic="true"
+        hidden
       >
         <p>
           Selecione uma entidade para ver os detalhes e as
@@ -152,29 +145,12 @@
       </div>
     </section>
 
-    <!-- Fontes externas -->
-    <section
-      id="fontes"
-      class="panel"
-      aria-labelledby="sources-heading"
-    >
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">REFERÊNCIAS</p>
-          <h2 id="sources-heading">Fontes externas</h2>
-        </div>
-      </div>
-
-      <p class="muted">
-        Consulte as fontes que fundamentam os registros e conexões do Mural das Conexões. Os links abrem nos sites originais; o FitaSolta organiza referências, não hospeda PDFs nem substitui a consulta aos documentos originais.
-      </p>
-      <div id="sources-list" class="source-list" aria-live="polite">
-        <p class="empty-state">Carregando fontes cadastradas…</p>
-      </div>
-
-      <p>
-        Priorizamos documentos oficiais, decisões judiciais, registros públicos e reportagens identificáveis. Diferenciamos fatos documentados, alegações, versões em disputa e hipóteses. Uma denúncia não é uma condenação; uma prisão não comprova culpa; uma investigação em andamento não é uma conclusão judicial. Sempre que possível, consulte a íntegra da fonte e verifique atualizações posteriores.
-      </p>
+    <!-- Fontes externas: documentos não são hospedados pelo site. -->
+    <section id="fontes" class="panel" aria-labelledby="sources-heading">
+      <p class="eyebrow">REFERÊNCIAS</p>
+      <h2 id="sources-heading">Fontes externas e originais</h2>
+      <p class="muted">Os links abrem nos sites originais. O FitaSolta registra referências e resumos como apoio de navegação; confira a fonte primária, seu contexto e atualizações posteriores. A extração por IA é uma sugestão editorial e nunca prova automática.</p>
+      <p>Os links originais também são listados no <a href="#public-source-list">mural de fontes</a> acima.</p>
     </section>
 
     <!-- Critérios para interpretar evidências -->
@@ -182,7 +158,7 @@
       class="panel"
       aria-labelledby="principles-heading"
     >
-      <p class="eyebrow">SOBRE O FITASOLTA</p>
+      <p class="eyebrow">TRANSPARÊNCIA</p>
 
       <h2 id="principles-heading">
         Como interpretar uma conexão
@@ -221,7 +197,7 @@
 
   <!-- Rodapé -->
   <footer class="footer">
-    <span>FitaSolta — Mural das Conexões. Projeto independente de organização de informações e fontes públicas.</span>
+    <span>FitaSolta — ambiente de desenvolvimento</span>
 
     <span
       id="health-status"
@@ -291,84 +267,6 @@
       aria-atomic="true"
     ></p>
 
-    <section id="manage-panel" aria-labelledby="manage-heading" hidden>
-      <h3 id="manage-heading">Cadastrar no mural</h3>
-      <p class="muted">Cadastre pessoas, casos, crimes, sentenças, anulações, pontos e linhas de investigação. Adicione links diretos; registros e conexões aparecem no mural e as fontes aparecem publicamente. Marque hipóteses como hipótese e não apresente suspeitas como fatos.</p>
-
-      <form id="investigate-form" class="form-stack">
-        <h4>Investigar automaticamente por link</h4>
-        <p class="muted">Cole uma URL pública. A IA vai analisar o texto acessível, extrair pessoas, órgãos, casos, crimes alegados, prisões, decisões, anulações, datas e conexões, e salvar os registros encontrados no mural. A análise depende de OPENAI_API_KEY configurada na Vercel.</p>
-        <label for="investigate-url">Link da fonte</label>
-        <input id="investigate-url" name="url" type="url" placeholder="https://..." maxlength="2048" required>
-        <button class="button" type="submit">Analisar fonte e montar conexões</button>
-        <p id="investigate-status" class="status" role="status" aria-live="polite"></p>
-        <div id="investigate-result" aria-live="polite"></div>
-      </form>
-
-      <form id="entity-form" class="form-stack">
-        <h4>Nova pessoa, ponto ou entidade</h4>
-        <label for="entity-name">Nome / título</label>
-        <input id="entity-name" name="name" maxlength="180" required>
-        <label for="entity-type">Tipo</label>
-        <select id="entity-type" name="type">
-          <option value="person">Pessoa</option>
-          <option value="organization">Organização</option>
-          <option value="institution">Instituição</option>
-          <option value="document">Documento</option>
-          <option value="event">Evento / caso</option>
-          <option value="crime">Crime / acusação</option>
-          <option value="sentence">Sentença / decisão judicial</option>
-          <option value="annulment">Anulação / recurso</option>
-          <option value="lead">Possível mandante / linha de investigação</option>
-          <option value="location">Local / ponto</option>
-          <option value="evidence">Evidência / documento</option>
-          <option value="other">Outro</option>
-        </select>
-        <label for="entity-description">Descrição / contexto</label>
-        <textarea id="entity-description" name="description" maxlength="3000" rows="3"></textarea>
-        <label for="entity-source-url">Link direto da fonte</label>
-        <input id="entity-source-url" name="source_url" type="url" placeholder="https://..." maxlength="2048">
-        <label for="entity-source-date">Data da fonte</label>
-        <input id="entity-source-date" name="source_date" type="date">
-        <label for="entity-status">Classificação</label>
-        <select id="entity-status" name="evidence_status">
-          <option value="documentado">Documentado</option>
-          <option value="fato_documentado">Fato documentado</option>
-          <option value="alegacao">Alegação</option>
-          <option value="hipotese">Hipótese</option>
-          <option value="nao_verificado" selected>Não verificado</option>
-        </select>
-        <button class="button" type="submit">Adicionar ao mural</button>
-        <p id="entity-form-status" class="status" role="status"></p>
-      </form>
-
-      <form id="relationship-form" class="form-stack">
-        <h4>Nova conexão entre pontos</h4>
-        <label for="relationship-source">Origem</label>
-        <select id="relationship-source" name="source_id" required></select>
-        <label for="relationship-target">Destino</label>
-        <select id="relationship-target" name="target_id" required></select>
-        <label for="relationship-label">Tipo de conexão / traçado</label>
-        <input id="relationship-label" name="label" maxlength="180" placeholder="Ex.: trabalhou em, encontrou-se com, citado em" required>
-        <label for="relationship-description">Descrição e contexto</label>
-        <textarea id="relationship-description" name="description" maxlength="3000" rows="3"></textarea>
-        <label for="relationship-source-url">Link direto da evidência</label>
-        <input id="relationship-source-url" name="source_url" type="url" placeholder="https://..." maxlength="2048">
-        <label for="relationship-source-date">Data da fonte</label>
-        <input id="relationship-source-date" name="source_date" type="date">
-        <label for="relationship-status">Classificação</label>
-        <select id="relationship-status" name="evidence_status">
-          <option value="documentado">Documentado</option>
-          <option value="fato_documentado">Fato documentado</option>
-          <option value="alegacao">Alegação</option>
-          <option value="hipotese">Hipótese</option>
-          <option value="nao_verificado" selected>Não verificado</option>
-        </select>
-        <button class="button" type="submit">Adicionar conexão</button>
-        <p id="relationship-form-status" class="status" role="status"></p>
-      </form>
-    </section>
-
     <section
       id="audit-panel"
       aria-labelledby="audit-heading"
@@ -388,6 +286,67 @@
 
       <ol id="audit-list" class="audit-list"></ol>
     </section>
+
+    <section
+      id="source-queue-panel"
+      aria-labelledby="source-queue-heading"
+      hidden
+    >
+      <div class="section-heading">
+        <div>
+          <h3 id="source-queue-heading">Fontes coletadas (Turso)</h3>
+          <p class="muted">Lista somente para consulta. O título e o resumo são metadados de pesquisa; confira a fonte original antes de concluir algo.</p>
+        </div>
+        <button
+          id="refresh-source-queue"
+          class="button button-outline"
+          type="button"
+        >
+          Atualizar fontes
+        </button>
+        <button
+          id="process-source-queue"
+          class="button"
+          type="button"
+        >
+          Processar próximas 3 fontes
+        </button>
+      </div>
+
+      <p
+        id="source-queue-status"
+        class="status"
+        role="status"
+        aria-live="polite"
+      ></p>
+
+      <label class="sr-only" for="source-queue-search">Filtrar fontes</label>
+      <input
+        id="source-queue-search"
+        type="search"
+        placeholder="Filtrar por título, URL ou resumo…"
+        autocomplete="off"
+      >
+
+      <ul id="source-queue-list" class="source-queue-list"></ul>
+
+      <section class="panel" aria-labelledby="gemini-review-heading">
+        <h3 id="gemini-review-heading">Revisão de evidências com Gemini</h3>
+        <p class="muted">A IA compara a afirmação com o trecho de fonte que você informar. Ela não abre a URL automaticamente e não substitui conferência humana.</p>
+        <form id="gemini-review-form" class="form-stack">
+          <label for="gemini-claim">Afirmação a revisar</label>
+          <textarea id="gemini-claim" rows="3" maxlength="3000" required placeholder="Ex.: A decisão anulou a condenação por determinado fundamento…"></textarea>
+          <label for="gemini-context">Contexto do caso (opcional)</label><textarea id="gemini-context" rows="2" maxlength="3000"></textarea>
+          <label for="gemini-source-title">Título da fonte</label><input id="gemini-source-title" maxlength="300">
+          <label for="gemini-source-url">URL da fonte</label><input id="gemini-source-url" type="url" maxlength="2000" placeholder="https://…">
+          <label for="gemini-source-excerpt">Trecho relevante da fonte</label><textarea id="gemini-source-excerpt" rows="6" maxlength="12000" required placeholder="Cole aqui o trecho do documento, decisão ou reportagem que sustenta a afirmação."></textarea>
+          <button id="gemini-review-submit" class="button" type="submit">Analisar evidências</button>
+        </form>
+        <div id="gemini-review-result" class="status" role="status" aria-live="polite"></div>
+      </section>
+
+    </section>
+
   </dialog>
 
   <!-- Aviso sobre o cookie essencial -->

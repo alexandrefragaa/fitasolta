@@ -6,13 +6,13 @@
 <meta name="description" content="Debates públicos e checagem de afirmações no FitaSolta, com contexto, fontes primárias e revisão humana.">
 <meta name="theme-color" content="#0b0d12">
 <title>Debates e checagens — FitaSolta</title>
-<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/style.css"><script src="/js/analytics.js" defer></script>
 <link rel="stylesheet" href="/css/debates.css">
 </head>
 <body>
 <header class="topbar">
 <a class="brand" href="/" aria-label="FitaSolta — página inicial"><span class="brand-mark" aria-hidden="true">FS</span><span>FITASOLTA</span></a>
-<nav aria-label="Navegação principal"><a href="/">Mural</a><a href="#videos">Debates</a><a href="#metodo">Método</a></nav>
+<nav aria-label="Navegação principal"><a href="/">Mural</a><a href="#claims">Afirmações</a><a href="/comparar.html">Comparar</a><a href="/votacao.html">Temas ao vivo</a><a href="/revisao.html">Revisão editorial</a></nav>
 </header>
 <main class="container">
 <section class="debates-intro">
@@ -38,31 +38,50 @@
 <article class="debate-card"><span class="tag">Material 10 · publicação no X</span><p>Publicação compartilhada para análise. O conteúdo, a autoria e o contexto precisam ser conferidos diretamente na publicação original antes de registrar qualquer afirmação.</p><a class="source-link" href="https://x.com/Haaaysb/status/2113818839821562016" target="_blank" rel="noopener noreferrer">Abrir publicação original no X ↗</a></article>
 </div>
 </section>
+<section class="panel" id="claims">
+<div class="section-heading"><div><p class="eyebrow">REGISTROS PUBLICADOS</p><h2>Afirmações com fontes</h2></div><button class="button button-outline" id="refresh-claims" type="button">Atualizar</button></div>
+<p class="status-note">O rótulo descreve o estado da evidência disponível. Cada ficha aponta para a fala original e para fontes que a sustentam, contradizem ou contextualizam. A quantidade de registros por pessoa pode ser diferente; isso não mede desempenho nem qualidade de governo.</p>
+<div class="review-grid">
+<div><label for="filter-speaker">Pessoa</label><select id="filter-speaker"><option value="">Todas</option></select></div>
+<div><label for="filter-topic">Tema</label><select id="filter-topic"><option value="">Todos os temas</option><option value="saude">Saúde</option><option value="economia">Economia</option><option value="seguranca">Segurança</option><option value="educacao">Educação</option><option value="meio_ambiente">Meio ambiente</option><option value="corrupcao">Transparência e corrupção</option><option value="trabalho">Trabalho</option><option value="direitos">Direitos e cidadania</option><option value="politica_externa">Política externa</option><option value="outros">Outros</option></select></div>
+<div><label for="filter-search">Buscar fala / contexto</label><input id="filter-search" type="search" maxlength="120" placeholder="Digite uma expressão…"></div><div><label for="filter-case">Caso / local / evento</label><input id="filter-case" type="search" maxlength="120" placeholder="Nome do caso ou evento"></div><div><label for="filter-type">Tipo de registro</label><select id="filter-type"><option value="">Todos</option><option value="factual">Afirmação factual</option><option value="promessa">Promessa</option><option value="proposta">Proposta</option><option value="voto">Voto</option><option value="sancao">Sanção / ato legislativo</option><option value="decisao">Decisão</option><option value="processo">Processo</option><option value="acao">Ação / entrega</option><option value="opiniao">Opinião</option><option value="previsao">Previsão</option></select></div><div><label for="filter-verdict">Estado da evidência</label><select id="filter-verdict"><option value="">Todos</option><option value="confirmada_por_documento">Confirmada por documento</option><option value="contradita_por_documento">Contradita por documento</option><option value="sem_fonte">Sem fonte suficiente</option><option value="em_disputa">Em disputa</option><option value="nao_verificada">Não verificada</option><option value="enganosa">Enganosa / imprecisa</option><option value="fora_de_contexto">Fora de contexto</option><option value="inconclusiva">Inconclusiva</option><option value="falsa">Falsa</option><option value="verdadeira">Verdadeira</option><option value="opiniao_previsao">Opinião / previsão</option></select></div><div><label for="filter-from">Data inicial</label><input id="filter-from" type="date"></div><div><label for="filter-to">Data final</label><input id="filter-to" type="date"></div></div>
+<p id="claims-count" class="status-note" aria-live="polite"></p><p id="balance-summary" class="status-note" aria-live="polite"></p><div id="claims-list" class="debate-grid"><p class="empty-state">Carregando registros publicados…</p></div>
+</section>
+<section class="panel" id="comparison">
+<p class="eyebrow">COMPARAÇÃO LADO A LADO</p><h2>Leia as fontes e conclua por conta própria</h2>
+<p>Selecione duas afirmações públicas. O sistema não classifica qual pessoa “vence”; mostra texto, data, contexto, fontes e limitações para leitura independente.</p>
+<div class="review-grid"><div><label for="compare-a">Registro A</label><select id="compare-a"><option value="">Carregando…</option></select></div><div><label for="compare-b">Registro B</label><select id="compare-b"><option value="">Carregando…</option></select></div></div>
+<div id="comparison-result" class="review-grid" aria-live="polite"></div>
+</section>
+<section class="panel" id="timeline">
+<p class="eyebrow">LINHA DO TEMPO</p><h2>Afirmações por pessoa e data</h2>
+<label for="timeline-speaker">Pessoa</label><select id="timeline-speaker"><option value="">Todas as pessoas</option></select>
+<div id="timeline-list" class="step-list"><p class="empty-state">Carregando linha do tempo…</p></div>
+</section>
 <section class="panel" id="fluxo">
 <p class="eyebrow">FICHA DE CHECAGEM</p><h2>Registrar uma afirmação sem pular etapas</h2>
-<p>Preencha a ficha durante a revisão. Use “Salvar rascunho no servidor” para guardar a ficha no banco persistente; a publicação continua bloqueada até revisão e aprovação humana.</p>
+<p>As afirmações públicas são exibidas somente depois da aprovação editorial. Para criar rascunhos, entre na área administrativa pela página inicial e volte a esta página. Rascunhos não ficam visíveis ao público.</p>
 <div class="review-grid">
 <form class="review-card" id="claim-form">
 <h3>1. Afirmação e contexto</h3>
 <label for="speaker">Pessoa que fez a afirmação</label><select id="speaker" required><option value="">Selecione</option><option>Lula</option><option>Flávio Bolsonaro</option><option>Outra pessoa / não identificado</option></select>
 <label for="video-id">Vídeo de origem</label><select id="video-id" required><option value="">Selecione</option><option value="1">Vídeo 01</option><option value="2">Vídeo 02</option><option value="3">Vídeo 03</option><option value="4">Vídeo 04</option><option value="5">Vídeo 05</option><option value="6">Vídeo 06</option><option value="7">Vídeo 07</option><option value="8">Vídeo 08</option><option value="9">Vídeo 09</option><option value="10">Publicação no X</option></select>
-<label for="timestamp">Timestamp / localização no material</label><input id="timestamp" pattern="^([0-9]{1,2}:)?[0-5][0-9]:[0-5][0-9]$" placeholder="Vídeo: 00:12:34 · X: deixe em branco">
+<label for="timestamp">Timestamp / localização no material</label><input id="timestamp" pattern="^([0-9]{1,3}:)?[0-5][0-9]:[0-5][0-9]$" placeholder="Vídeo: 00:12:34 · publicação no X: opcional"><label for="claim-date">Data da fala / publicação (se confirmada)</label><input id="claim-date" type="date"><label for="topic">Tema</label><select id="topic" required><option value="outros">Outros temas</option><option value="saude">Saúde</option><option value="economia">Economia</option><option value="seguranca">Segurança</option><option value="educacao">Educação</option><option value="meio_ambiente">Meio ambiente</option><option value="corrupcao">Transparência e corrupção</option><option value="trabalho">Trabalho</option><option value="direitos">Direitos e cidadania</option><option value="politica_externa">Política externa</option></select><label for="location">Local / evento (se conhecido)</label><input id="location" maxlength="160" placeholder="Debate, entrevista, sessão legislativa…"><label for="related-entities">Relacionar a pessoas / casos já cadastrados no mural (opcional)</label><select id="related-entities" multiple size="4" aria-describedby="entity-link-help"></select><label for="entity-relation">Tipo de ligação para as entidades selecionadas</label><select id="entity-relation"><option value="said_by">A fala foi feita por</option><option value="about_case">Trata do caso</option><option value="relates_to">Relaciona-se a</option><option value="documents_action">Documenta uma ação</option></select><p id="entity-link-help" class="status-note">Para ligar a uma pessoa ou caso, cadastre a ficha no mural primeiro. Use Ctrl (Windows) para selecionar mais de uma.</p>
 <label for="quote">Transcrição literal da afirmação</label><textarea id="quote" rows="4" maxlength="3000" required placeholder="Copie exatamente e confira a fala no vídeo."></textarea>
 <label for="context-text">Contexto anterior e posterior</label><textarea id="context-text" rows="3" maxlength="3000" required placeholder="Vídeo: pergunta e resposta completa. X: texto, legenda e contexto da publicação…"></textarea>
-<label for="claim-type">Tipo de conteúdo</label><select id="claim-type" required><option value="">Selecione</option><option>Afirmação factual verificável</option><option>Opinião</option><option>Promessa ou proposta</option><option>Previsão</option><option>Não determinado</option></select>
+<label for="claim-type">Tipo de conteúdo</label><select id="claim-type" required><option value="factual">Afirmação factual verificável</option><option value="promessa">Promessa</option><option value="proposta">Proposta</option><option value="voto">Voto</option><option value="sancao">Sanção / ato legislativo</option><option value="decisao">Decisão</option><option value="processo">Processo</option><option value="acao">Ação / entrega</option><option value="opiniao">Opinião</option><option value="previsao">Previsão</option><option value="nao_determinado">Não determinado</option></select>
 <button class="button" type="submit">Gerar ficha de checagem</button>
 </form>
 <div class="review-card">
 <h3>2. Evidências e conclusão editorial</h3>
 <p class="status-note">Registre links de fontes confiáveis e o que cada uma comprova. Priorize bases oficiais, legislação, dados originais e documentos integrais.</p>
 <label for="journalism">Checagens jornalísticas (URLs)</label><textarea id="journalism" rows="3" maxlength="4000" placeholder="Uma URL por linha; informe veículo, título e data nas anotações."></textarea>
-<label for="primary">Fontes primárias (URLs)</label><textarea id="primary" rows="3" maxlength="4000" placeholder="IBGE, TSE, legislação, acórdãos, relatórios oficiais…"></textarea>
+<label for="primary">Fontes primárias (URLs)</label><textarea id="primary" rows="3" maxlength="4000" placeholder="IBGE, TSE, legislação, acórdãos, relatórios oficiais…"></textarea><label for="support-urls">URLs que sustentam a afirmação (opcional)</label><textarea id="support-urls" rows="2" maxlength="4000" placeholder="Uma URL por linha"></textarea><label for="contradict-urls">URLs que contradizem ou limitam a afirmação (opcional)</label><textarea id="contradict-urls" rows="2" maxlength="4000" placeholder="Uma URL por linha"></textarea>
 <label for="support">O que sustenta a afirmação?</label><textarea id="support" rows="3" maxlength="3000"></textarea>
 <label for="contradict">O que contradiz ou limita a afirmação?</label><textarea id="contradict" rows="3" maxlength="3000"></textarea>
-<label for="verdict">Classificação provisória</label><select id="verdict"><option>Não verificada</option><option>Verdadeira</option><option>Falsa</option><option>Enganosa / imprecisa</option><option>Fora de contexto</option><option>Inconclusiva</option><option>Opinião / previsão — não verificável como fato</option></select>
+<label for="verdict">Rótulo provisório (não é veredito publicado)</label><select id="verdict"><option value="nao_verificada">Não verificada</option><option value="confirmada_por_documento">Confirmada por documento</option><option value="contradita_por_documento">Contradita por documento</option><option value="sem_fonte">Sem fonte suficiente</option><option value="em_disputa">Em disputa</option><option value="verdadeira">Verdadeira</option><option value="falsa">Falsa</option><option value="enganosa">Enganosa / imprecisa</option><option value="fora_de_contexto">Fora de contexto</option><option value="inconclusiva">Inconclusiva</option><option value="opiniao_previsao">Opinião / previsão</option></select>
 <label for="explanation">Explicação final em linguagem simples</label><textarea id="explanation" rows="4" maxlength="4000" placeholder="Explique o que as evidências mostram, limites e ressalvas."></textarea>
-<button class="button" id="save-draft" type="button">Salvar rascunho no servidor</button>
-<button class="button button-outline" id="export-record" type="button">Exportar ficha JSON</button>
+<button class="button" id="save-claim" type="button">Salvar rascunho no banco</button><button class="button button-outline" id="export-record" type="button">Exportar ficha JSON</button>
 <button class="button button-outline" id="copy-record" type="button">Copiar ficha em texto</button>
 <p id="export-status" class="status-note" aria-live="polite"></p>
 </div>

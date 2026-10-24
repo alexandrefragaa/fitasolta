@@ -1,121 +1,40 @@
-
 "use strict";
 (() => {
- const videoUrls = {
-  "1":"https://youtu.be/rUnAbA73RH0?is=LxNoRKpeYiAnLoFN",
-  "2":"https://youtu.be/T8oPN6v1L0c?is=txDksFJckshVlQfC",
-  "3":"https://youtu.be/Z2AA0h2wr4U?is=VoeNo02nD5dUGmYI",
-  "4":"https://youtu.be/QhluFzoPl30?is=ftcExdKvGcM5ApFi",
-  "5":"https://youtu.be/f62pfk2eHCA?is=CeoLcSy2qOQSCJVc",
-  "6":"https://youtu.be/X1fp4JzouvA?is=JRPv6B6G0ZsOSjKo",
-  "7":"https://www.youtube.com/live/tokmOZltAG8?is=-pbEdidFvWlvq3b8",
-  "8":"https://www.youtube.com/live/6ktnzdym2-I?is=ez5AUY1V-p98eQR8",
-  "9":"https://youtu.be/gXN1JxBkyX8?is=rpxtHicZ5OQOOTIi",
-  "10":"https://x.com/Haaaysb/status/2113818839821562016"
- };
- const byId = id => document.getElementById(id);
- const value = id => byId(id)?.value.trim() || "";
- function record() {
-  return {
-   project:"FitaSolta",
-   createdAt:new Date().toISOString(),
-   speaker:value("speaker"),
-   videoNumber:value("video-id"),
-   videoUrl:videoUrls[value("video-id")] || "",
-   timestamp:value("timestamp"),
-   quote:value("quote"),
-   context:value("context-text"),
-   claimType:value("claim-type"),
-   journalismChecks:value("journalism").split("\n").map(s=>s.trim()).filter(Boolean),
-   primarySources:value("primary").split("\n").map(s=>s.trim()).filter(Boolean),
-   supportingEvidence:value("support"),
-   contradictoryEvidence:value("contradict"),
-   provisionalClassification:value("verdict"),
-   explanation:value("explanation"),
-   publicationStatus:"rascunho_requer_revisao_humana"
+  const $ = id => document.getElementById(id);
+  const state = { csrf: "", claims: [], allClaims: [] };
+  const videos = {
+    "1":"https://youtu.be/rUnAbA73RH0?is=LxNoRKpeYiAnLoFN","2":"https://youtu.be/T8oPN6v1L0c?is=txDksFJckshVlQfC",
+    "3":"https://youtu.be/Z2AA0h2wr4U?is=VoeNo02nD5dUGmYI","4":"https://youtu.be/QhluFzoPl30?is=ftcExdKvGcM5ApFi",
+    "5":"https://youtu.be/f62pfk2eHCA?is=CeoLcSy2qOQSCJVc","6":"https://youtu.be/X1fp4JzouvA?is=JRPv6B6G0ZsOSjKo",
+    "7":"https://www.youtube.com/live/tokmOZltAG8?is=-pbEdidFvWlvq3b8","8":"https://www.youtube.com/live/6ktnzdym2-I?is=ez5AUY1V-p98eQR8",
+    "9":"https://youtu.be/gXN1JxBkyX8?is=rpxtHicZ5OQOOTIi","10":"https://x.com/Haaaysb/status/2113818839821562016"
   };
- }
- byId("save-draft")?.addEventListener("click", async () => {
-  const form = byId("claim-form");
-  if (!form.reportValidity()) {
-   byId("export-status").textContent = "Preencha os campos obrigatórios antes de salvar.";
-   return;
-  }
-  const data = record();
-  const button = byId("save-draft");
-  button.disabled = true;
-  byId("export-status").textContent = "Salvando rascunho no servidor…";
-  try {
-   const csrfResponse = await fetch("/api/csrf", { credentials: "same-origin", cache: "no-store" });
-   const csrfData = await csrfResponse.json();
-   if (!csrfResponse.ok || !csrfData.csrfToken) throw new Error("Não foi possível obter o token de segurança. Atualize a página.");
-   const response = await fetch("/api/admin/claims", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfData.csrfToken },
-    body: JSON.stringify({
-     speaker: data.speaker, video_url: data.videoUrl, timestamp: data.timestamp,
-     quote: data.quote, context: data.context, claim_type: data.claimType,
-     verdict: data.provisionalClassification, explanation: data.explanation,
-     journalism_checks: data.journalismChecks.join("\n"),
-     primary_sources: data.primarySources.join("\n"),
-     supporting_evidence: data.supportingEvidence,
-     contradictory_evidence: data.contradictoryEvidence
-    })
-   });
-   const payload = await response.json().catch(() => ({}));
-   if (!response.ok) {
-    if (response.status === 401) throw new Error("Entre na Área administrativa da página inicial e volte aqui para salvar.");
-    throw new Error(payload.error || "Não foi possível salvar o rascunho.");
-   }
-   byId("export-status").textContent = "Rascunho salvo no banco persistente (ID " + payload.id + "). Não foi publicado; ainda exige revisão editorial.";
-   byId("export-status").dataset.text = "ID: " + payload.id + "\n" + JSON.stringify(data, null, 2);
-  } catch (error) {
-   byId("export-status").textContent = error.message || "Falha ao salvar. Você ainda pode exportar o JSON local.";
-  } finally {
-   button.disabled = false;
-  }
- });
- byId("claim-form").addEventListener("submit", event => {
-  event.preventDefault();
-  const data=record();
-  const output = [
-   "FICHA DE CHECAGEM — FITASOLTA",
-   "Pessoa: "+data.speaker,
-   "Vídeo: "+data.videoUrl,
-   "Timestamp: "+data.timestamp,
-   "Afirmação literal: "+data.quote,
-   "Contexto: "+data.context,
-   "Tipo: "+data.claimType,
-   "Checagens jornalísticas:\n"+(data.journalismChecks.join("\n")||"Ainda não informado"),
-   "Fontes primárias:\n"+(data.primarySources.join("\n")||"Ainda não informado"),
-   "Evidências favoráveis: "+(data.supportingEvidence||"Ainda não informado"),
-   "Evidências contrárias/limitações: "+(data.contradictoryEvidence||"Ainda não informado"),
-   "Classificação provisória: "+data.provisionalClassification,
-   "Explicação: "+(data.explanation||"Ainda não redigida"),
-   "STATUS: rascunho; requer revisão humana."
-  ].join("\n\n");
-  byId("export-status").textContent="Ficha estruturada. Revise as evidências. O arquivo ainda não é salvo no servidor.";
-  byId("export-status").dataset.text=output;
- });
- byId("export-record").addEventListener("click",()=>{
-  const form=byId("claim-form");
-  if (!form.reportValidity()) {
-   byId("export-status").textContent="Preencha os campos obrigatórios e confira o timestamp antes de exportar.";
-   return;
-  }
-  const data=record();
-  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json;charset=utf-8"});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");
-  a.href=url;a.download="fita-solta-checagem-"+(data.timestamp.replaceAll(":","-")||"rascunho")+".json";
-  document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
-  byId("export-status").textContent="JSON exportado. Ele é um arquivo local e ainda não foi salvo no banco do site.";
- });
- byId("copy-record").addEventListener("click",async()=>{
-  const text=byId("export-status").dataset.text;
-  if(!text){byId("claim-form").requestSubmit();return;}
-  try{await navigator.clipboard.writeText(text);byId("export-status").textContent="Ficha copiada para a área de transferência.";}
-  catch{byId("export-status").textContent="Não foi possível copiar automaticamente. Use Exportar ficha JSON.";}
- });
+  const topicLabels = {saude:"Saúde",economia:"Economia",seguranca:"Segurança",educacao:"Educação",meio_ambiente:"Meio ambiente",corrupcao:"Transparência e corrupção",trabalho:"Trabalho",direitos:"Direitos e cidadania",politica_externa:"Política externa",outros:"Outros temas"};
+  const verdictLabels = {confirmada_por_documento:"Confirmada por documento",contradita_por_documento:"Contradita por documento",sem_fonte:"Sem fonte suficiente",em_disputa:"Em disputa",verdadeira:"Verdadeira",falsa:"Falsa",enganosa:"Enganosa / imprecisa",fora_de_contexto:"Fora de contexto",inconclusiva:"Inconclusiva",opiniao_previsao:"Opinião / previsão",nao_verificada:"Não verificada",fato_documentado:"Fato documentado",alegacao:"Alegação",hipotese:"Hipótese"};
+  const typeLabels = {factual:"Afirmação factual",promessa:"Promessa",proposta:"Proposta",opiniao:"Opinião",previsao:"Previsão",voto:"Voto",sancao:"Sanção / ato legislativo",decisao:"Decisão",processo:"Processo",acao:"Ação / entrega",nao_determinado:"Não determinado"};
+  function text(node,value){if(node)node.textContent=String(value??"");}
+  function el(tag,cls,value){const n=document.createElement(tag);if(cls)n.className=cls;if(value!==undefined)n.textContent=String(value);return n;}
+  function safeUrl(value){try{const u=new URL(value);return ["https:","http:"].includes(u.protocol)&&!u.username&&!u.password?u.href:"";}catch{return "";}}
+  function seconds(value){if(!value)return null;const p=value.split(":").map(Number);if(p.some(n=>!Number.isInteger(n)))return null;if(p.length===2)return p[0]*60+p[1];if(p.length===3)return p[0]*3600+p[1]*60+p[2];return null;}
+  function originalUrl(c){const safe=safeUrl(c.source_url);if(!safe)return "";const t=seconds(c.timestamp);if(t===null||c.source_type==="publicacao_x")return safe;try{const u=new URL(safe);u.searchParams.set("t",String(t));return u.href;}catch{return safe;}}
+  function link(url,label){const href=safeUrl(url);if(!href)return null;const a=el("a","source-link",label);a.href=href;a.target="_blank";a.rel="noopener noreferrer";return a;}
+  async function csrf(){const r=await fetch("/api/csrf",{credentials:"same-origin",cache:"no-store"});const b=await r.json().catch(()=>({}));if(!r.ok||!b.csrfToken)throw new Error(b.error||"Não foi possível validar a sessão.");state.csrf=b.csrfToken;return state.csrf;}
+  async function api(path,options={}){const method=(options.method||"GET").toUpperCase(),headers=new Headers(options.headers||{});headers.set("Accept","application/json");if(!["GET","HEAD","OPTIONS"].includes(method)){if(!state.csrf)await csrf();headers.set("X-CSRF-Token",state.csrf);}if(options.body!==undefined)headers.set("Content-Type","application/json");const r=await fetch(path,{...options,method,headers,credentials:"same-origin",cache:"no-store"});const b=await r.json().catch(()=>({}));if(!r.ok)throw new Error(b.error||"Não foi possível completar a solicitação.");return b;}
+  function value(id){return $(id)?.value?.trim()||"";}
+  function lines(id){return value(id).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);}
+  function dateLabel(v){if(!v)return"Data não informada";const d=new Date(v.length===10?v+"T12:00:00":v);return Number.isNaN(d.getTime())?v:new Intl.DateTimeFormat("pt-BR",{dateStyle:"medium"}).format(d);}
+  function titleFor(c){return c.speaker+" · "+dateLabel(c.claim_date)+" · "+String(c.quote||"").slice(0,100);}
+  function field(parent,label,v){const p=el("p");p.append(el("strong","",label+": "),document.createTextNode(String(v||"Não informado")));parent.appendChild(p);}
+  function reportForm(c){const f=el("form","report-form");f.hidden=true;f.appendChild(el("h4","","Sugerir correção para esta ficha"));const sl=el("label","","O que precisa ser corrigido?"),sum=el("input");sum.required=true;sum.maxLength=200;sum.placeholder="Resumo objetivo da correção";sl.appendChild(sum);const dl=el("label","","Contexto adicional (opcional)"),details=el("textarea");details.maxLength=2000;details.rows=3;details.placeholder="Explique o erro ou a informação que falta";dl.appendChild(details);const ul=el("label","","Link da evidência (opcional)"),url=el("input");url.type="url";url.maxLength=2048;url.placeholder="https://…";ul.appendChild(url);const btn=el("button","button","Enviar correção");btn.type="submit";const status=el("p","status-note");status.setAttribute("aria-live","polite");f.append(sl,dl,ul,btn,status);f.addEventListener("submit",async ev=>{ev.preventDefault();btn.disabled=true;try{const b=await api("/api/claims/"+encodeURIComponent(c.id)+"/corrections",{method:"POST",body:JSON.stringify({summary:sum.value,details:details.value,evidence_url:url.value})});text(status,b.message||"Correção enviada para revisão.");f.reset();}catch(e){text(status,e.message);}finally{btn.disabled=false;}});return f;}
+  function claimCard(c){const card=el("article","debate-card");card.id="claim-"+c.id;card.appendChild(el("span","tag",(topicLabels[c.topic]||c.topic||"Tema não informado")+" · "+(verdictLabels[c.verdict]||c.verdict||"Não verificada")));card.appendChild(el("h3","",c.speaker||"Pessoa não identificada"));card.appendChild(el("p","status-note",dateLabel(c.claim_date)+" · "+(typeLabels[c.claim_type]||c.claim_type||"Tipo não informado")+" · "+(c.source_count||0)+" fontes cadastradas · "+(c.accepted_corrections||0)+" correção(ões) aceita(s)"));card.appendChild(el("blockquote","",c.quote||"Afirmação não informada"));if(c.context)card.appendChild(el("p","",c.context));if(c.explanation)card.appendChild(el("p","",c.explanation));const source=link(originalUrl(c),c.source_type==="publicacao_x"?"Abrir publicação original":"Abrir vídeo no trecho indicado");if(source)card.appendChild(source);const detail=el("details","claim-evidence");detail.appendChild(el("summary","","Ver fontes, pessoas/casos ligados e correções"));const evidence=el("div","");detail.appendChild(evidence);let evidenceLoaded=false;detail.addEventListener("toggle",async()=>{if(!detail.open||evidenceLoaded)return;evidenceLoaded=true;evidence.appendChild(el("p","status-note","Carregando fontes e histórico…"));try{const result=await api("/api/claims/"+encodeURIComponent(c.id));evidence.replaceChildren();evidence.appendChild(el("h4","","Fontes"));for(const src of result.sources||[]){const p=el("p","source-row",(src.side==="supports"?"Sustenta":src.side==="contradicts"?"Contradiz/limita":"Contextualiza")+" · "+(src.title||src.publisher||src.source_type)+" — ");const a=link(src.url,src.url);if(a)p.appendChild(a);if(src.excerpt)p.appendChild(document.createTextNode(" · "+src.excerpt));evidence.appendChild(p);}if(!(result.sources||[]).length)evidence.appendChild(el("p","status-note","Nenhuma fonte adicional foi publicada."));evidence.appendChild(el("h4","","Pessoas / casos ligados"));for(const item of result.entities||[]){const p=el("p","source-row",item.name+" · "+item.type+" · "+item.relation_type);if(item.source_url){p.appendChild(document.createTextNode(" — "));const a=link(item.source_url,"abrir fonte da entidade");if(a)p.appendChild(a);}evidence.appendChild(p);}if(!(result.entities||[]).length)evidence.appendChild(el("p","status-note","Nenhuma ligação com ficha de pessoa/caso foi publicada."));evidence.appendChild(el("h4","","Correções aceitas"));for(const correction of result.corrections||[]){const p=el("p","source-row",correction.summary+" · "+(correction.review_note||"Correção aceita pela revisão editorial"));if(correction.evidence_url){p.appendChild(document.createTextNode(" — "));const a=link(correction.evidence_url,"abrir evidência");if(a)p.appendChild(a);}evidence.appendChild(p);}if(!(result.corrections||[]).length)evidence.appendChild(el("p","status-note","Nenhuma correção aceita até o momento."));}catch(err){evidence.replaceChildren(el("p","status-note",err.message));}});card.appendChild(detail);const actions=el("div","review-grid"),copy=el("button","button button-outline","Copiar link da ficha"),share=el("button","button button-outline","Compartilhar no WhatsApp"),report=el("button","button button-outline","Reportar erro");copy.type=share.type=report.type="button";copy.addEventListener("click",async()=>{const u=new URL(location.href);u.hash="claim-"+c.id;try{await navigator.clipboard.writeText(u.href);copy.textContent="Link copiado";}catch{copy.textContent="Copie o endereço da barra do navegador";}});share.addEventListener("click",()=>{const u=new URL(location.href);u.hash="claim-"+c.id;window.open("https://wa.me/?text="+encodeURIComponent(c.speaker+": "+c.quote+"\n"+u.href),"_blank","noopener,noreferrer");});const form=reportForm(c);report.addEventListener("click",()=>{form.hidden=!form.hidden;if(!form.hidden)form.scrollIntoView({behavior:"smooth",block:"nearest"});});actions.append(copy,share,report);card.append(actions,form);return card;}
+  function fillSelect(s,claims,label){if(!s)return;const prev=s.value;s.replaceChildren(new Option(label,""));for(const c of claims)s.add(new Option(titleFor(c),c.id));if([...s.options].some(o=>o.value===prev))s.value=prev;}
+  async function loadClaims(){const b=await api("/api/claims");state.allClaims=b.claims||[];const speakers=[...new Set(state.allClaims.map(c=>c.speaker).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt-BR"));for(const id of ["filter-speaker","timeline-speaker"]){const s=$(id);if(!s)continue;const prev=s.value;s.replaceChildren(new Option(id==="filter-speaker"?"Todas":"Todas as pessoas",""));for(const name of speakers)s.add(new Option(name,name));if(speakers.includes(prev))s.value=prev;}state.claims=state.allClaims.filter(c=>(!value("filter-speaker")||c.speaker===value("filter-speaker"))&&(!value("filter-topic")||c.topic===value("filter-topic"))&&(!value("filter-type")||c.claim_type===value("filter-type"))&&(!value("filter-verdict")||c.verdict===value("filter-verdict"))&&(!value("filter-from")||((c.claim_date||"")>=value("filter-from")))&&(!value("filter-to")||((c.claim_date||"")<=value("filter-to")))&&(!value("filter-case")||String(c.location||"").toLocaleLowerCase("pt-BR").includes(value("filter-case").toLocaleLowerCase("pt-BR")))&&(!value("filter-search")||((c.quote+" "+c.context+" "+c.speaker).toLocaleLowerCase("pt-BR").includes(value("filter-search").toLocaleLowerCase("pt-BR")))));fillSelect($("compare-a"),state.allClaims,"Selecione um registro");fillSelect($("compare-b"),state.allClaims,"Selecione outro registro");const host=$("claims-list");if(host){host.replaceChildren();state.claims.forEach(c=>host.appendChild(claimCard(c)));if(!state.claims.length)host.appendChild(el("p","empty-state","Ainda não há afirmações publicadas. Os rascunhos administrativos não aparecem aqui."));}text($("claims-count"),state.claims.length+" afirmação(ões) publicada(s) para estes filtros.");const bySpeaker={};for(const c of state.allClaims)bySpeaker[c.speaker]=(bySpeaker[c.speaker]||0)+1;text($("balance-summary"),"Registros publicados por pessoa: "+Object.keys(bySpeaker).sort((a,b)=>a.localeCompare(b,"pt-BR")).map(k=>k+": "+bySpeaker[k]).join(" · ")+" — são contagens de material cadastrado, não uma comparação de desempenho.");renderTimeline();renderComparison();}
+  async function compareCard(id,heading){const c=state.allClaims.find(x=>x.id===id),card=el("article","debate-card");card.appendChild(el("h3","",heading));if(!c){card.appendChild(el("p","empty-state","Selecione uma afirmação publicada."));return card;}card.appendChild(el("p","status-note",c.speaker+" · "+dateLabel(c.claim_date)+" · "+(topicLabels[c.topic]||c.topic)));card.appendChild(el("blockquote","",c.quote));field(card,"Contexto",c.context);field(card,"Tipo",typeLabels[c.claim_type]||c.claim_type);field(card,"Rótulo de evidência",verdictLabels[c.verdict]||c.verdict);const a=link(originalUrl(c),"Abrir fonte original / trecho");if(a)card.appendChild(a);try{const d=await api("/api/claims/"+encodeURIComponent(c.id));for(const s of d.sources||[]){const p=el("p");const label=(s.side==="supports"?"Sustenta":s.side==="contradicts"?"Contradiz/limita":"Contextualiza")+" · "+(s.title||s.publisher||s.source_type);const x=link(s.url,label);if(x)p.appendChild(x);if(s.excerpt)p.appendChild(document.createTextNode(" — "+s.excerpt));if(p.childNodes.length)card.appendChild(p);}if((d.entities||[]).length){card.appendChild(el("h4","","Pessoas / casos relacionados"));for(const item of d.entities){const p=el("p","source-row",item.name+" · "+item.type+" · "+item.relation_type);if(item.source_url){p.appendChild(document.createTextNode(" — "));const a=link(item.source_url,"fonte da entidade");if(a)p.appendChild(a);}card.appendChild(p);}}for(const correction of d.corrections||[]){card.appendChild(el("p","source-row","Correção aceita: "+correction.summary));if(correction.evidence_url){const p=el("p");const a=link(correction.evidence_url,"Abrir evidência da correção");if(a)p.appendChild(a);card.appendChild(p);}}}catch{card.appendChild(el("p","status-note","Detalhes das fontes indisponíveis."));}card.appendChild(el("p","status-note","Leia as fontes originais. Este painel não declara um vencedor."));return card;}
+  async function renderComparison(){const host=$("comparison-result");if(!host)return;host.replaceChildren();const a=$("compare-a")?.value,b=$("compare-b")?.value;if(!a||!b){host.appendChild(el("p","empty-state","Escolha duas afirmações publicadas para comparar fontes, datas e contexto."));return;}if(a===b){host.appendChild(el("p","status-note","Selecione duas afirmações diferentes."));return;}const pair=await Promise.all([compareCard(a,"Registro A"),compareCard(b,"Registro B")]);host.append(...pair);}
+  function renderTimeline(){const host=$("timeline-list");if(!host)return;host.replaceChildren();const selected=value("timeline-speaker"),rows=state.claims.filter(c=>!selected||c.speaker===selected).sort((a,b)=>(a.claim_date||a.created_at||"").localeCompare(b.claim_date||b.created_at||""));if(!rows.length){host.appendChild(el("p","empty-state","Nenhum registro publicado para esse filtro."));return;}for(const c of rows){const li=el("li");li.appendChild(el("strong","",dateLabel(c.claim_date)+" · "+c.speaker));li.appendChild(document.createTextNode(" — "+c.quote+" "));const a=el("a","","Abrir ficha");a.href="#claim-"+c.id;li.appendChild(a);host.appendChild(li);}}
+  function formRecord(){const id=value("video-id");return {speaker:value("speaker"),source_url:videos[id]||"",source_type:id==="10"?"publicacao_x":"video_original",timestamp:value("timestamp"),claim_date:value("claim-date"),quote:value("quote"),context:value("context-text"),topic:value("topic")||"outros",location:value("location"),entity_ids:[...($("related-entities")?.selectedOptions||[])].map(option=>option.value),entity_relation_type:value("entity-relation")||"relates_to",claim_type:value("claim-type")||"factual",verdict:value("verdict")||"nao_verificada",explanation:value("explanation"),supporting_evidence:value("support"),contradictory_evidence:value("contradict")};}
+  async function saveDraft(){const f=$("claim-form"),status=$("export-status"),button=$("save-claim");if(!f.reportValidity())return;const data=formRecord();if(!data.source_url){text(status,"Selecione um material de origem válido.");return;}if(data.source_type==="video_original"&&data.timestamp&&seconds(data.timestamp)===null){text(status,"Timestamp inválido. Use MM:SS ou HH:MM:SS.");return;}button.disabled=true;text(status,"Salvando rascunho e referências no Turso…");try{const result=await api("/api/admin/claims",{method:"POST",body:JSON.stringify(data)});const sources=[];for(const [id,type,side,title] of [["journalism","jornalistica","context","Checagem jornalística"],["primary","primaria","context","Fonte primária"],["support-urls","outra","supports","Evidência favorável"],["contradict-urls","outra","contradicts","Evidência contrária ou limitadora"]])for(const url of lines(id))sources.push({source_type:type,side,title,url,publisher:"",published_date:"",excerpt:"",notes:""});let saved=0,failures=0;for(const src of sources){try{await api("/api/admin/claims/"+encodeURIComponent(result.id)+"/sources",{method:"POST",body:JSON.stringify(src)});saved++;}catch{failures++;}}let linked=0;for(const entityId of data.entity_ids||[]){try{await api("/api/admin/claims/"+encodeURIComponent(result.id)+"/entities",{method:"POST",body:JSON.stringify({entity_id:entityId,relation_type:data.entity_relation_type})});linked++;}catch{failures++;}}const out={...data,id:result.id,status:"draft",sources_saved:saved,entities_linked:linked};text(status,"Rascunho "+result.id+" salvo no banco remoto. Status: draft. "+saved+" fonte(s) e "+linked+" ligação(ões) de entidade cadastrada(s). "+(failures?failures+" URL(s) falharam na validação; revise os links.":"") +" Ainda não foi publicado. Abra a revisão editorial para revisar e aprovar.");status.dataset.text=JSON.stringify(out,null,2);}catch(e){text(status,e.message+" Se a sessão não for administrativa, entre na área administrativa na página inicial e volte a esta ficha.");}finally{button.disabled=false;}}
+  async function loadEntities(){const select=$("related-entities");if(!select)return;try{const response=await api("/api/entities"),entities=response.entities||[];select.replaceChildren();for(const e of entities)select.add(new Option(e.name+" · "+(e.type||"entidade"),e.id));}catch{select.replaceChildren(new Option("Não foi possível carregar entidades",""));}}
+  function init(){const f=$("claim-form");if(f)f.addEventListener("submit",ev=>{ev.preventDefault();const d=formRecord();const out=["FICHA DE CHECAGEM — FITASOLTA","Pessoa: "+d.speaker,"Fonte original: "+d.source_url,"Data: "+(d.claim_date||"Não informada"),"Timestamp: "+(d.timestamp||"Não aplicável"),"Afirmação literal: "+d.quote,"Contexto: "+d.context,"Tema: "+(topicLabels[d.topic]||d.topic),"Checagens jornalísticas:\n"+(lines("journalism").join("\n")||"Ainda não informado"),"Fontes primárias:\n"+(lines("primary").join("\n")||"Ainda não informado"),"Evidências favoráveis: "+(d.supporting_evidence||"Ainda não informado"),"Evidências contrárias/limitações: "+(d.contradictory_evidence||"Ainda não informado"),"Classificação provisória: "+(verdictLabels[d.verdict]||d.verdict),"Explicação: "+(d.explanation||"Ainda não redigida"),"STATUS: rascunho; requer revisão humana."].join("\n\n");text($("export-status"),"Ficha preparada localmente. Use “Salvar rascunho no banco” para persistir no Turso.");$("export-status").dataset.text=out;});$("save-claim")?.addEventListener("click",saveDraft);$("export-record")?.addEventListener("click",()=>{if(!$("claim-form").reportValidity())return;const data=formRecord(),blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json;charset=utf-8"}),url=URL.createObjectURL(blob),a=el("a");a.href=url;a.download="fita-solta-rascunho.json";document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);text($("export-status"),"JSON exportado localmente. Use “Salvar rascunho no banco” para persistir no servidor.");});$("copy-record")?.addEventListener("click",async()=>{const t=$("export-status")?.dataset.text;if(!t){f?.requestSubmit();return;}try{await navigator.clipboard.writeText(t);text($("export-status"),"Ficha copiada.");}catch{text($("export-status"),"Não foi possível copiar automaticamente. Use Exportar ficha JSON.");}});$("refresh-claims")?.addEventListener("click",()=>loadClaims().catch(e=>text($("claims-count"),e.message)));$("filter-speaker")?.addEventListener("change",()=>loadClaims().catch(e=>text($("claims-count"),e.message)));$("filter-topic")?.addEventListener("change",()=>loadClaims().catch(e=>text($("claims-count"),e.message)));$("filter-search")?.addEventListener("change",()=>loadClaims().catch(e=>text($("claims-count"),e.message)));for(const id of ["filter-type","filter-verdict","filter-from","filter-to","filter-case"])$(id)?.addEventListener("change",()=>loadClaims().catch(e=>text($("claims-count"),e.message)));$("compare-a")?.addEventListener("change",renderComparison);$("compare-b")?.addEventListener("change",renderComparison);$("timeline-speaker")?.addEventListener("change",renderTimeline);const p=new URLSearchParams(location.search);if(p.get("topic")&&$("filter-topic"))$("filter-topic").value=p.get("topic");loadEntities();loadClaims().catch(e=>{text($("claims-count"),"Não foi possível carregar afirmações: "+e.message);const host=$("claims-list");if(host)host.replaceChildren(el("p","empty-state","A API de afirmações está indisponível. Confira o deploy."));});}
+  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init);else init();
 })();
