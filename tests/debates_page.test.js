@@ -46,3 +46,9 @@ test("published checks expose a control to inspect registered sources and eviden
   assert.match(html, /Evidência favorável/);
   assert.match(html, /Limitações\/evidências contrárias/);
 });
+
+test("editorial decisions are recorded against the latest review", () => {
+  const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  assert.match(server, /SELECT id FROM claim_reviews WHERE claim_id=\? ORDER BY created_at DESC LIMIT 1/);
+  assert.match(server, /UPDATE claim_reviews SET reviewer_decision=\?,reviewed_at=CURRENT_TIMESTAMP WHERE id=\?/);
+});
