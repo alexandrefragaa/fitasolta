@@ -104,3 +104,9 @@ input:focus-visible { border-color: #f28a95; }
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* Banner de métricas opcionais; exibido apenas após consentimento explícito. */
+.analytics-consent{position:fixed;z-index:50;inset:auto 1rem 1rem;max-width:760px;margin:auto;padding:1rem 1.2rem;background:#101722;color:#f2f5fb;border:1px solid #47536a;border-radius:1rem;box-shadow:0 12px 42px #0008}
+.analytics-consent p{margin:.2rem 0 .8rem}
+.analytics-actions{display:flex;flex-wrap:wrap;gap:.6rem}
+.analytics-actions button{font:inherit;cursor:pointer}
