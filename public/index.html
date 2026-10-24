@@ -35,7 +35,7 @@
 
     <nav aria-label="Navegação principal">
       <a href="#mapa">Mural</a>
-      <a href="#documentos">Documentos</a>
+      <a href="#mapa">Investigações</a>
 
       <button
         id="admin-open"
@@ -52,14 +52,12 @@
   <main class="container">
     <!-- Apresentação e pesquisa -->
     <section class="hero" aria-labelledby="page-title">
-      <p class="eyebrow">PISTAS · FONTES · CONEXÕES</p>
+      <p class="eyebrow">ARQUIVO ABERTO · FONTES · INVESTIGAÇÃO</p>
 
-      <h1 id="page-title">Toda fita deixa rastros.</h1>
+      <h1 id="page-title">Siga as conexões. Descubra o que as fontes revelam.</h1>
 
       <p>
-        Organize entidades e documentos, investigue relações e
-        acompanhe a origem de cada informação sem confundir
-        hipótese com fato comprovado.
+        O FitaSolta é um mural investigativo que reúne links e registros de fontes em um só lugar. Explore documentos, acompanhe o andamento de cada fonte e abra os materiais originais para conferir o contexto por conta própria.
       </p>
 
       <div class="search-row" role="search">
@@ -71,7 +69,7 @@
           id="search"
           name="search"
           type="search"
-          placeholder="Pesquisar nomes, categorias ou descrições…"
+          placeholder="Pesquisar pessoas, casos, crimes, decisões ou fontes…"
           autocomplete="off"
         >
 
@@ -85,9 +83,7 @@
       </div>
 
       <p class="notice">
-        Cada relação deve ter uma fonte e uma classificação.
-        Uma associação, por si só, não prova culpa, intenção
-        ou participação criminosa.
+        Transparência primeiro: uma notícia, denúncia ou investigação não equivale a condenação. O mural exibe o que está registrado nas fontes disponíveis — não inventa dados que ainda não foram documentados.
       </p>
     </section>
 
@@ -99,8 +95,8 @@
     >
       <div class="section-heading">
         <div>
-          <p class="eyebrow">EXPLORAÇÃO</p>
-          <h2 id="graph-heading">Mural de conexões</h2>
+          <p class="eyebrow">PAINEL CENTRAL</p>
+          <h2 id="graph-heading">Mural investigativo</h2>
         </div>
 
         <button
@@ -117,11 +113,8 @@
         aria-label="Legenda do mural"
       >
         <span class="legend-dot" aria-hidden="true"></span>
-        <span>Entidade</span>
-
-        <span class="muted">
-          Selecione um nó para consultar os detalhes.
-        </span>
+        <span>Fontes e registros</span>
+        <span class="muted">Pesquise, filtre e abra a fonte original.</span>
       </div>
 
       <div
@@ -136,10 +129,11 @@
           Carregando dados do servidor…
         </p>
       </div>
+      <div class="board-summary" id="board-summary" aria-live="polite">Conectando às fontes…</div>
+      <div id="public-source-list" class="public-source-list" aria-live="polite"><p class="empty-state">Carregando fontes do banco de dados…</p></div>
 
       <p id="graph-description" class="sr-only">
-        Explore as entidades exibidas no mural. Consulte os detalhes
-        e as fontes disponíveis antes de interpretar uma relação.
+        Explore os registros disponíveis. Abra cada fonte original para verificar contexto, nomes, datas, decisões e andamento.
       </p>
 
       <div
@@ -147,6 +141,7 @@
         class="details"
         aria-live="polite"
         aria-atomic="true"
+        hidden
       >
         <p>
           Selecione uma entidade para ver os detalhes e as
