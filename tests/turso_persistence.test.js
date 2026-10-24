@@ -281,6 +281,11 @@ test("libSQL persistence survives restart and keeps the editorial publication ga
   const publicCase = await requestJson(baseUrl, "/api/cases/" + caseId);
   assert.equal(publicCase.response.status, 200);
   assert.equal(publicCase.body.case.id, caseId);
+  const rejectPublishedCase = await requestJson(baseUrl, "/api/admin/cases/" + caseId + "/decision", {
+    method: "POST", cookie, csrf, body: { decision: "rejected" }
+  });
+  assert.equal(rejectPublishedCase.response.status, 409);
+  assert.equal((await requestJson(baseUrl, "/api/cases/" + caseId)).response.status, 200);
 
   const createdPerson = await requestJson(baseUrl, "/api/admin/people", {
     method: "POST",
@@ -308,6 +313,11 @@ test("libSQL persistence survives restart and keeps the editorial publication ga
   }
   const publicPeopleAfter = await requestJson(baseUrl, "/api/entities");
   assert.equal(publicPeopleAfter.body.entities.some((item) => item.id === personId), true);
+  const rejectPublishedPerson = await requestJson(baseUrl, "/api/admin/people/" + personId + "/decision", {
+    method: "POST", cookie, csrf, body: { decision: "rejected" }
+  });
+  assert.equal(rejectPublishedPerson.response.status, 409);
+  assert.equal((await requestJson(baseUrl, "/api/entities")).body.entities.some((item) => item.id === personId), true);
 
   const role = await requestJson(baseUrl, "/api/admin/cases/" + caseId + "/people", {
     method: "POST",
@@ -437,6 +447,11 @@ test("libSQL persistence survives restart and keeps the editorial publication ga
   }
   const clipsAfter = await requestJson(baseUrl, "/api/clips");
   assert.equal(clipsAfter.body.clips.some((item) => item.id === clip.body.id), true);
+  const rejectPublishedClip = await requestJson(baseUrl, "/api/admin/clips/" + clip.body.id + "/decision", {
+    method: "POST", cookie, csrf, body: { decision: "rejected" }
+  });
+  assert.equal(rejectPublishedClip.response.status, 409);
+  assert.equal((await requestJson(baseUrl, "/api/clips")).body.clips.some((item) => item.id === clip.body.id), true);
 
   const publicCaseAfter = await requestJson(baseUrl, "/api/cases/" + caseId);
   assert.equal(publicCaseAfter.body.people.some((item) => item.entity_id === personId), true);
@@ -464,6 +479,11 @@ test("libSQL persistence survives restart and keeps the editorial publication ga
 
   const restartedContradictions = await requestJson(baseUrl, "/api/contradictions");
   assert.ok(restartedContradictions.body.contradictions.some((item) => item.id === relationDraft.body.id));
+  const rejectPublishedRelation = await requestJson(baseUrl, "/api/admin/claim-relations/" + relationDraft.body.id + "/decision", {
+    method: "POST", cookie, csrf, body: { decision: "rejected" }
+  });
+  assert.equal(rejectPublishedRelation.response.status, 409);
+  assert.ok((await requestJson(baseUrl, "/api/contradictions")).body.contradictions.some((item) => item.id === relationDraft.body.id));
 
   const restartedClips = await requestJson(baseUrl, "/api/clips");
   assert.ok(restartedClips.body.clips.some((item) => item.id === clip.body.id));
