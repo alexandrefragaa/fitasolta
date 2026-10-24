@@ -202,6 +202,18 @@ async function initializeDatabase() {
       CHECK (claim_id <> related_claim_id)
     );
 
+    CREATE TABLE IF NOT EXISTS claim_entities (
+      id TEXT PRIMARY KEY,
+      claim_id TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      relation_type TEXT NOT NULL DEFAULT 'relates_to',
+      explanation TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (claim_id, entity_id, relation_type),
+      FOREIGN KEY (claim_id) REFERENCES claims(id) ON DELETE CASCADE,
+      FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS claim_versions (
       id TEXT PRIMARY KEY,
       claim_id TEXT NOT NULL,
@@ -859,7 +871,7 @@ const CLAIM_STATUSES = new Set(["draft", "in_review", "approved", "published", "
 const CLAIM_SOURCE_TYPES = new Set(["video_original", "publicacao_x", "primaria", "jornalistica", "outra"]);
 const CLAIM_SOURCE_SIDES = new Set(["supports", "contradicts", "context"]);
 const CLAIM_TOPICS = new Set(["saude", "economia", "seguranca", "educacao", "meio_ambiente", "corrupcao", "trabalho", "direitos", "politica_externa", "outros"]);
-const CLAIM_TYPES = new Set(["factual", "promessa", "proposta", "opiniao", "previsao", "nao_determinado"]);
+const CLAIM_TYPES = new Set(["factual", "promessa", "proposta", "opiniao", "previsao", "voto", "sancao", "decisao", "processo", "acao", "nao_determinado"]);
 const CLAIM_FIELDS = [
   "id", "speaker", "claim_date", "source_url", "source_type", "timestamp", "quote", "context",
   "topic", "location", "claim_type", "verdict", "explanation", "supporting_evidence",
@@ -970,12 +982,14 @@ app.get("/api/claims/:id", asyncHandler(async (req, res) => {
   if (!claim || (claim.status !== "published" && req.session?.isAdmin !== true)) {
     return res.status(404).json({ error: "Afirmação não encontrada." });
   }
-  const [sources, corrections, relations] = await Promise.all([
+  const [sources, corrections, relations, entities] = await Promise.all([
     db.prepare("SELECT id, source_type, side, title, url, publisher, published_date, excerpt, notes, created_at FROM claim_sources WHERE claim_id = ? ORDER BY created_at ASC").all(claim.id),
     db.prepare("SELECT id, summary, details, evidence_url, review_note, created_at, reviewed_at FROM correction_reports WHERE claim_id = ? AND status = 'accepted' ORDER BY reviewed_at DESC").all(claim.id),
-    db.prepare(`SELECT r.id, r.relation_type, r.explanation, c.id AS related_id, c.speaker AS related_speaker, c.quote AS related_quote, c.claim_date AS related_date FROM claim_relations r JOIN claims c ON c.id = r.related_claim_id WHERE r.claim_id = ? AND c.status = 'published'`).all(claim.id)
+    db.prepare(`SELECT r.id, r.relation_type, r.explanation, c.id AS related_id, c.speaker AS related_speaker, c.quote AS related_quote, c.claim_date AS related_date FROM claim_relations r JOIN claims c ON c.id = r.related_claim_id WHERE r.claim_id = ? AND c.status = 'published'`).all(claim.id),
+    db.prepare(`SELECT ce.id, ce.relation_type, ce.explanation, e.id AS entity_id, e.name, e.type, e.description, e.source_url, e.source_date, e.evidence_status
+      FROM claim_entities ce JOIN entities e ON e.id = ce.entity_id WHERE ce.claim_id = ? ORDER BY e.name ASC`).all(claim.id)
   ]);
-  res.set("Cache-Control", "no-store").json({ claim, sources, corrections, relations });
+  res.set("Cache-Control", "no-store").json({ claim, sources, corrections, relations, entities });
 }));
 
 app.get("/api/timeline", asyncHandler(async (req, res) => {
@@ -1051,13 +1065,15 @@ app.post("/api/admin/claims", requireCsrf, requireAdmin, asyncHandler(async (req
 app.get("/api/admin/claims/:id", requireAdmin, asyncHandler(async (req, res) => {
   const claim = await db.prepare("SELECT * FROM claims WHERE id = ?").get(req.params.id);
   if (!claim) return res.status(404).json({ error: "Afirmação não encontrada." });
-  const [sources, reviews, relations, versions] = await Promise.all([
+  const [sources, reviews, relations, versions, entities] = await Promise.all([
     db.prepare("SELECT * FROM claim_sources WHERE claim_id = ? ORDER BY created_at ASC").all(claim.id),
     db.prepare("SELECT id, model, output_json, reviewer_decision, created_at, reviewed_at FROM claim_reviews WHERE claim_id = ? ORDER BY created_at DESC").all(claim.id),
     db.prepare("SELECT r.*, c.speaker AS related_speaker, c.quote AS related_quote FROM claim_relations r JOIN claims c ON c.id = r.related_claim_id WHERE r.claim_id = ?").all(claim.id),
-    db.prepare("SELECT id, action, actor, created_at FROM claim_versions WHERE claim_id = ? ORDER BY rowid DESC LIMIT 50").all(claim.id)
+    db.prepare("SELECT id, action, actor, created_at FROM claim_versions WHERE claim_id = ? ORDER BY rowid DESC LIMIT 50").all(claim.id),
+    db.prepare(`SELECT ce.id, ce.relation_type, ce.explanation, e.id AS entity_id, e.name, e.type, e.source_url
+      FROM claim_entities ce JOIN entities e ON e.id = ce.entity_id WHERE ce.claim_id = ? ORDER BY e.name ASC`).all(claim.id)
   ]);
-  res.set("Cache-Control", "no-store").json({ claim, sources, reviews, relations, versions });
+  res.set("Cache-Control", "no-store").json({ claim, sources, reviews, relations, versions, entities });
 }));
 
 app.put("/api/admin/claims/:id", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
@@ -1258,6 +1274,26 @@ app.post("/api/admin/claims/:id/undo", requireCsrf, requireAdmin, asyncHandler(a
   res.json({ id: current.id, status: snapshot.status || "draft", message: "A última alteração da ficha foi desfeita." });
 }));
 
+
+app.post("/api/admin/claims/:id/entities", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
+  const entityId = cleanString(req.body?.entity_id, { min: 1, max: 100, required: true });
+  const relationType = ["said_by", "about_case", "relates_to", "documents_action"].includes(req.body?.relation_type) ? req.body.relation_type : "relates_to";
+  const explanation = cleanString(req.body?.explanation || "", { max: 1500 });
+  if (!entityId || explanation === null) return res.status(400).json({ error: "Ligação com entidade inválida." });
+  const claim = await db.prepare("SELECT id FROM claims WHERE id = ?").get(req.params.id);
+  const entity = await db.prepare("SELECT id FROM entities WHERE id = ?").get(entityId);
+  if (!claim || !entity) return res.status(404).json({ error: "Afirmação ou entidade não encontrada." });
+  const id = crypto.randomUUID();
+  try {
+    await db.prepare("INSERT INTO claim_entities (id, claim_id, entity_id, relation_type, explanation) VALUES (?, ?, ?, ?, ?)")
+      .run(id, claim.id, entity.id, relationType, explanation);
+  } catch {
+    return res.status(409).json({ error: "Essa ligação já existe." });
+  }
+  await audit(req, "claim_entity_linked", "claim_entity", id);
+  res.status(201).json({ id, entity_id: entity.id, relation_type: relationType });
+}));
+
 app.post("/api/admin/claims/:id/relations", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
   const b = req.body || {};
   const relatedId = cleanString(b.related_claim_id, { min: 1, max: 100, required: true });
@@ -1371,7 +1407,7 @@ app.get("/api/admin/quality", requireAdmin, asyncHandler(async (req, res) => {
   const [total, missingSources, staleClaims, pendingCorrections, pendingReviews] = await Promise.all([
     db.prepare("SELECT COUNT(*) AS count FROM claims").get(),
     db.prepare("SELECT COUNT(*) AS count FROM claims c WHERE NOT EXISTS (SELECT 1 FROM claim_sources s WHERE s.claim_id = c.id AND s.source_type IN ('primaria','jornalistica','outra'))").get(),
-    db.prepare("SELECT COUNT(*) AS count FROM claims WHERE status = 'published' AND (published_at IS NULL OR published_at < datetime('now', '-180 days'))").get(),
+    db.prepare("SELECT COUNT(*) AS count FROM claims c WHERE c.status = 'published' AND COALESCE((SELECT MAX(r.reviewed_at) FROM claim_reviews r WHERE r.claim_id = c.id), c.published_at, c.created_at) < datetime('now', '-180 days')").get(),
     db.prepare("SELECT COUNT(*) AS count FROM correction_reports WHERE status = 'pending'").get(),
     db.prepare("SELECT COUNT(*) AS count FROM claim_reviews WHERE reviewer_decision = 'pending'").get()
   ]);
