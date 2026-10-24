@@ -64,6 +64,7 @@
   }
   function fillTypeFilter() {
     const select = $("entity-type");
+    select.replaceChildren(new Option("Todos os tipos", ""));
     const types = [...new Set(state.entities.map((e) => e.type).filter(Boolean))].sort((a,b) => a.localeCompare(b, "pt-BR"));
     for (const type of types) select.add(new Option(labels[type] || type, type));
   }
