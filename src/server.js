@@ -825,6 +825,51 @@ app.post("/api/admin/claims", requireCsrf, requireAdmin, asyncHandler(async (req
   res.status(201).set("Cache-Control","no-store").json({ id, status: "draft" });
 }));
 
+
+app.put("/api/admin/claims/:id", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const existing = await db.prepare("SELECT id,status FROM claims WHERE id=?").get(req.params.id);
+  if (!existing) return res.status(404).json({ error: "Ficha não encontrada." });
+  if (existing.status === "published" || existing.status === "approved") {
+    return res.status(409).json({ error: "Uma ficha aprovada ou publicada precisa de uma nova revisão editorial antes de ser editada." });
+  }
+  const speaker = cleanString(body.speaker, { min: 1, max: 120, required: true });
+  const videoUrl = normalizeHttpUrl(body.video_url || "");
+  const sourceKind = claimSourceTypes.has(body.source_kind) ? body.source_kind : "video_original";
+  const timestamp = cleanString(body.timestamp || "", { max: 20 });
+  const quote = cleanString(body.quote, { min: 1, max: 3000, required: true });
+  const context = cleanString(body.context, { min: 1, max: 3000, required: true });
+  const claimType = cleanString(body.claim_type || "factual", { min: 1, max: 100, required: true });
+  const verdict = claimVerdicts.has(body.verdict) ? body.verdict : "nao_verificada";
+  const explanation = cleanString(body.explanation || "", { max: 4000 });
+  const supporting = cleanString(body.supporting_evidence || "", { max: 3000 });
+  const contradictory = cleanString(body.contradictory_evidence || "", { max: 3000 });
+  const timestampValid = sourceKind === "publicacao_x"
+    ? (!timestamp || /^([0-9]{1,2}:)?[0-5][0-9]:[0-5][0-9]$/.test(timestamp))
+    : /^([0-9]{1,2}:)?[0-5][0-9]:[0-5][0-9]$/.test(timestamp || "");
+  if (!speaker || !videoUrl || timestamp === null || !quote || !context || !claimType || !timestampValid) {
+    return res.status(400).json({ error: "Confira pessoa, material, fala literal, contexto e timestamp." });
+  }
+  if ([explanation,supporting,contradictory].some(value => value === null)) {
+    return res.status(400).json({ error: "Um campo de evidência ou explicação excede o tamanho permitido." });
+  }
+  const journalism = parseSourceUrls(body.journalism_checks);
+  const primary = parseSourceUrls(body.primary_sources);
+  if (journalism.error || primary.error) return res.status(400).json({ error: journalism.error || primary.error });
+  const statements = [
+    {
+      sql: "UPDATE claims SET speaker=?,video_url=?,source_kind=?,timestamp=?,quote=?,context=?,claim_type=?,verdict=?,explanation=?,supporting_evidence=?,contradictory_evidence=?,journalism_checks=?,status='draft',published_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+      args: [speaker,videoUrl,sourceKind,timestamp,quote,context,claimType,verdict,explanation,supporting,contradictory,JSON.stringify(journalism.urls),existing.id]
+    },
+    { sql: "DELETE FROM claim_sources WHERE claim_id=?", args: [existing.id] }
+  ];
+  for (const url of journalism.urls) statements.push({ sql: "INSERT INTO claim_sources (id,claim_id,source_type,url) VALUES (?,?,?,?)", args: [crypto.randomUUID(),existing.id,"jornalistica",url] });
+  for (const url of primary.urls) statements.push({ sql: "INSERT INTO claim_sources (id,claim_id,source_type,url) VALUES (?,?,?,?)", args: [crypto.randomUUID(),existing.id,"primaria",url] });
+  await db.batch(statements);
+  await audit(req,"claim_updated","claim",existing.id);
+  res.set("Cache-Control","no-store").json({ id: existing.id, status: "draft" });
+}));
+
 app.get("/api/admin/claims/:id", requireAdmin, asyncHandler(async (req, res) => {
   const claim = await db.prepare("SELECT * FROM claims WHERE id=?").get(req.params.id);
   if (!claim) return res.status(404).json({ error: "Ficha não encontrada." });
