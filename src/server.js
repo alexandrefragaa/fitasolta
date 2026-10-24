@@ -976,6 +976,10 @@ app.post("/api/admin/claims/:id/decision", requireCsrf, requireAdmin, asyncHandl
     if (!claim.quote || !claim.context || !source) return res.status(409).json({ error: "Antes de aprovar, preencha a fala e o contexto e cadastre ao menos uma fonte verificável." });
   }
   await db.prepare("UPDATE claims SET status=?,published_at=CASE WHEN ?='published' THEN CURRENT_TIMESTAMP ELSE NULL END,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(decision,decision,claim.id);
+  const latestReview = await db.prepare("SELECT id FROM claim_reviews WHERE claim_id=? ORDER BY created_at DESC LIMIT 1").get(claim.id);
+  if (latestReview) {
+    await db.prepare("UPDATE claim_reviews SET reviewer_decision=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?").run(decision,latestReview.id);
+  }
   await audit(req,"claim_" + decision,"claim",claim.id);
   res.set("Cache-Control","no-store").json({ id: claim.id, status: decision });
 }));
