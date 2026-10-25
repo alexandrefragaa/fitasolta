@@ -937,8 +937,13 @@ async function ensurePublicMuralHydrated() {
   publicMuralSyncPromise = (async () => {
     try {
       const queue = await readTursoSourceQueue(1000, true);
-      const result = await rebuildStoredSourceConnections(queue, 200);
-      publicMuralSyncNextAttemptAt = Date.now() + (result.errors ? 60_000 : 5 * 60_000);
+      const batchLimit = 12;
+      const result = await rebuildStoredSourceConnections(queue, batchLimit);
+      // Progride em pequenos lotes para não exceder o tempo da função serverless.
+      publicMuralSyncNextAttemptAt = Date.now() + (
+        result.errors ? 60_000 :
+        result.scanned >= batchLimit ? 15_000 : 5 * 60_000
+      );
       if (result.rebuilt > 0 || result.errors > 0) {
         console.log("Hidratação automática do mural:", JSON.stringify(result));
       }
