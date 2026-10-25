@@ -19,6 +19,7 @@
     <nav class="admin-nav" aria-label="Navegação administrativa">
       <a href="#source-intake-panel">Adicionar material</a>
       <a href="#source-queue-panel">Fila de fontes</a>
+      <a href="#admin-trash-panel">Lixeira</a>
       <a href="#audit-panel">Auditoria</a>
       <a href="/">Ver site público</a>
     </nav>
@@ -62,6 +63,11 @@
         <textarea id="source-intake-urls" name="urls" rows="3" placeholder="https://..."></textarea>
         <label for="source-intake-media">Link de vídeo ou imagem (opcional)</label>
         <input id="source-intake-media" name="media_url" type="url" placeholder="https://youtu.be/... ou link de imagem">
+        <label for="source-intake-files">Enviar prints, screenshots e vídeos (até 3 arquivos; 1,5 MB por arquivo)</label>
+        <input id="source-intake-files" name="files" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" multiple>
+        <label for="source-intake-context">Contexto para a IA (opcional)</label>
+        <textarea id="source-intake-context" rows="2" maxlength="4000" placeholder="Onde foi publicado, data aproximada, o que precisa ser investigado…"></textarea>
+        <p class="muted">A IA sugere extrações e possíveis vínculos; nada é publicado ou tratado como comprovado sem revisão humana.</p>
         <label for="source-intake-text">Texto, transcrição ou contexto (opcional)</label>
         <textarea id="source-intake-text" name="raw_text" rows="6" maxlength="12000" placeholder="Cole o trecho literal, a transcrição ou o texto a organizar."></textarea>
         <p class="muted">Quando colar texto, use no máximo um link de origem por envio. Se não houver link original, o registro fica identificado como texto fornecido.</p>
@@ -106,6 +112,10 @@
       <ul id="source-queue-list" class="source-queue-list"></ul>
     </section>
 
+    <section id="admin-trash-panel" class="panel admin-panel" aria-labelledby="trash-heading" hidden>
+      <div class="section-heading"><div><p class="eyebrow">RECUPERAÇÃO</p><h2 id="trash-heading">Lixeira restaurável</h2><p class="muted">Fontes removidas da fila podem ser restauradas.</p></div><button id="refresh-trash" class="button button-outline" type="button">Atualizar lixeira</button></div>
+      <p id="trash-status" class="status" role="status" aria-live="polite"></p><ul id="trash-list" class="source-queue-list"></ul>
+    </section>
     <section id="audit-panel" class="panel admin-panel" aria-labelledby="audit-heading" hidden>
       <div class="section-heading">
         <div>
