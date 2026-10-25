@@ -16,7 +16,10 @@
       <span class="brand-mark" aria-hidden="true">FS</span>
       <span>FITASOLTA</span>
     </a>
-    <nav aria-label="Navegação administrativa">
+    <nav class="admin-nav" aria-label="Navegação administrativa">
+      <a href="#source-intake-panel">Adicionar material</a>
+      <a href="#source-queue-panel">Fila de fontes</a>
+      <a href="#audit-panel">Auditoria</a>
       <a href="/">Ver site público</a>
     </nav>
   </header>
@@ -25,10 +28,10 @@
     <section class="hero admin-hero">
       <p class="eyebrow">AMBIENTE PRIVADO</p>
       <h1>Painel administrativo</h1>
-      <p class="muted">Acompanhe a fila, a descoberta automática de fontes públicas e os registros de processamento. Esta página só é entregue pelo servidor quando a sessão administrativa está autenticada.</p>
+      <p class="muted">Área de trabalho para adicionar materiais e acompanhar o processamento. A auditoria fica separada no final da página.</p>
       <div class="admin-automation-note">
         <span class="admin-note-mark" aria-hidden="true">↻</span>
-        <p><strong>Processamento automático ativo</strong><br>Todos os dias o FitaSolta consulta feeds públicos da Agência Brasil, Agência Senado e Agência Câmara, adiciona novidades à fila e tenta processar até 3 fontes. Quando a fila antiga está grande, importa uma novidade por dia; os erros ficam elegíveis para nova tentativa automática.</p>
+        <p><strong>Processamento automático ativo</strong><br>O sistema consulta feeds públicos diariamente e tenta processar até 3 fontes por ciclo. Erros podem ser reprocessados; revise o conteúdo antes de usá-lo publicamente.</p>
       </div>
     </section>
 
@@ -42,18 +45,6 @@
         <button class="button" type="submit">Entrar</button>
       </form>
       <p id="login-status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
-    </section>
-
-    <section id="audit-panel" class="panel admin-panel" aria-labelledby="audit-heading" hidden>
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">SEGURANÇA</p>
-          <h2 id="audit-heading">Eventos de auditoria</h2>
-          <p class="muted">Registro das ações administrativas recentes.</p>
-        </div>
-        <button id="logout-button" class="button button-outline" type="button">Sair</button>
-      </div>
-      <ol id="audit-list" class="audit-list"></ol>
     </section>
 
     <section id="source-intake-panel" class="panel admin-panel" aria-labelledby="source-intake-heading" hidden>
@@ -79,6 +70,7 @@
       </form>
     </section>
 
+
     <section id="source-queue-panel" class="panel admin-panel" aria-labelledby="source-queue-heading" hidden>
       <div class="section-heading admin-queue-heading">
         <div>
@@ -97,6 +89,18 @@
       <label class="sr-only" for="source-queue-search">Filtrar fontes</label>
       <input id="source-queue-search" type="search" placeholder="Filtrar por título, URL, resumo ou erro…" autocomplete="off">
       <ul id="source-queue-list" class="source-queue-list"></ul>
+    </section>
+
+    <section id="audit-panel" class="panel admin-panel" aria-labelledby="audit-heading" hidden>
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">SEGURANÇA</p>
+          <h2 id="audit-heading">Eventos de auditoria</h2>
+          <p class="muted">Registro das ações administrativas recentes.</p>
+        </div>
+        <button id="logout-button" class="button button-outline" type="button">Sair</button>
+      </div>
+      <ol id="audit-list" class="audit-list"></ol>
     </section>
 
   </main>
