@@ -69,7 +69,6 @@
     boardSummary: $("#board-summary"),
     sourcePersonFilter: $("#source-person-filter"),
     sourceVerdictFilter: $("#source-verdict-filter"),
-    sourceLiveState: $("#source-live-state"),
     refreshSources: $("#refresh-sources"),
     graphDetails: $("#entity-details"),
     refreshGraph: $("#refresh-graph"),
@@ -81,8 +80,6 @@
     documentsPanel: $("#documents-panel"),
     documentsList: $("#documents-list"),
     refreshDocuments: $("#refresh-documents"),
-
-    healthStatus: $("#health-status"),
     cookieNotice: $("#cookie-notice"),
     cookieDismiss: $("#cookie-dismiss")
   };
@@ -841,7 +838,7 @@
   async function processSourceQueue({ retryErrors = false } = {}) {
     const triggerButton = retryErrors ? elements.retrySourceErrors : elements.processSourceQueue;
     if (!state.isAdmin || !triggerButton) return;
-    setButtonLoading(triggerButton, true, retryErrors ? "Tentando novamente…" : "Processando…");
+    setButtonLoading(triggerButton, true, retryErrors ? "Tentando novamente…" : "Aguarde…");
     setStatus(
       elements.sourceQueueStatus,
       retryErrors
@@ -1000,10 +997,6 @@
         if (term || categoryFilter || personFilter || verdictFilter || mode !== "all") parts.push("filtros aplicados");
         elements.boardSummary.textContent = parts.join(" · ");
       }
-    }
-    if (elements.sourceLiveState) {
-      elements.sourceLiveState.textContent = state.publicSourceStats?.queueAvailable === false ? "Base indisponível" : "Base conectada";
-      elements.sourceLiveState.classList.toggle("live-indicator-error", state.publicSourceStats?.queueAvailable === false);
     }
 
     elements.publicSourceList.replaceChildren();
@@ -1168,10 +1161,10 @@
   }
 
   async function loadPublicBoard() {
-    if(!elements.publicSourceList||state.loadingPublicBoard)return;state.loadingPublicBoard=true;if(elements.sourceLiveState)elements.sourceLiveState.textContent="Sincronizando fontes…";
+    if(!elements.publicSourceList||state.loadingPublicBoard)return;state.loadingPublicBoard=true;
     if(!state.publicSources.length)elements.publicSourceList.replaceChildren(createMessage("Consultando o banco e os feeds públicos…"));
     try{const r=await fetch(API+"/sources",{headers:{Accept:"application/json"},cache:"no-store"}),data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||"Falha ao carregar fontes (HTTP "+r.status+").");state.publicSources=Array.isArray(data.sources)?data.sources:[];state.publicSourceStats={...(data.stats||{}),queueAvailable:data.queueAvailable!==false};renderPublicSources()}
-    catch(e){state.publicSourceStats={...(state.publicSourceStats||{}),queueAvailable:false};elements.publicSourceList.replaceChildren(createMessage(e.message||"Não foi possível carregar fontes.","error-message"));if(elements.boardSummary)elements.boardSummary.textContent="Não foi possível conectar ao banco de fontes.";if(elements.sourceLiveState){elements.sourceLiveState.textContent="Radar indisponível";elements.sourceLiveState.classList.add("live-indicator-error")}}
+    catch(e){state.publicSourceStats={...(state.publicSourceStats||{}),queueAvailable:false};elements.publicSourceList.replaceChildren(createMessage(e.message||"Não foi possível carregar fontes.","error-message"));if(elements.boardSummary)elements.boardSummary.textContent="Não foi possível conectar ao banco de fontes.";}
     finally{state.loadingPublicBoard=false}
   }
 
@@ -1772,25 +1765,6 @@
   // Estado de saúde da API
   // ------------------------------------------------------------
 
-  async function checkHealth() {
-    if (!elements.healthStatus) return;
-
-    try {
-      const data = await apiFetch("/health");
-
-      if (data.ok && data.database === "connected") {
-        setText(elements.healthStatus, "Servidor conectado");
-        elements.healthStatus.classList.remove("is-error");
-        elements.healthStatus.classList.add("is-success");
-      } else {
-        throw new Error("O servidor informou um estado indisponível.");
-      }
-    } catch {
-      setText(elements.healthStatus, "Servidor indisponível");
-      elements.healthStatus.classList.remove("is-success");
-      elements.healthStatus.classList.add("is-error");
-    }
-  }
 
   // ------------------------------------------------------------
   // Aviso de cookie essencial
