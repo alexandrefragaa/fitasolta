@@ -42,6 +42,12 @@
     sourceIntakeUrls: $("#source-intake-urls"),
     sourceIntakeText: $("#source-intake-text"),
     sourceIntakeMedia: $("#source-intake-media"),
+    sourceIntakeFiles: $("#source-intake-files"),
+    sourceIntakeContext: $("#source-intake-context"),
+    trashPanel: $("#admin-trash-panel"),
+    trashList: $("#trash-list"),
+    trashStatus: $("#trash-status"),
+    refreshTrash: $("#refresh-trash"),
     sourceIntakeTitle: $("#source-intake-title"),
     sourceIntakeStatus: $("#source-intake-status"),
     sourceQueueStatus: $("#source-queue-status"),
@@ -374,6 +380,9 @@
     if (elements.sourceIntakePanel) {
       elements.sourceIntakePanel.hidden = !state.isAdmin;
     }
+    if (elements.trashPanel) {
+      elements.trashPanel.hidden = !state.isAdmin;
+    }
 
     if (elements.adminPassword) {
       elements.adminPassword.value = "";
@@ -385,7 +394,8 @@
       await Promise.allSettled([
         loadDocuments(),
         loadAuditEvents(),
-        loadSourceQueue()
+        loadSourceQueue(),
+        loadTrash()
       ]);
     } else {
       if (elements.documentsPanel) {
@@ -402,6 +412,7 @@
 
       state.sourceQueue = [];
       if (elements.sourceQueueList) elements.sourceQueueList.replaceChildren();
+      if (elements.trashList) elements.trashList.replaceChildren();
       if (elements.sourceQueueStatus) setText(elements.sourceQueueStatus, "");
     }
   }
@@ -739,15 +750,54 @@
       const footer = createElement("div", "source-queue-item-footer");
       footer.appendChild(createElement("span", "muted", `Atualizada: ${formatDate(source.updated_at || source.created_at)}`));
       appendSourceLink(footer, source.url || source.original_url || source.media_url, "Abrir fonte");
+      const trashButton = createElement("button", "button button-outline", "Mover para lixeira");
+      trashButton.type = "button";
+      trashButton.addEventListener("click", async () => {
+        if (!window.confirm("Mover esta fonte para a lixeira restaurável?")) return;
+        trashButton.disabled = true;
+        try { await apiFetch("/admin/sources/" + encodeURIComponent(source.id) + "/trash", { method: "POST", body: {} }); await loadSourceQueue(); await loadTrash(); }
+        catch (error) { setStatus(elements.sourceQueueStatus, error.message || "Não foi possível mover para a lixeira.", true); }
+        finally { trashButton.disabled = false; }
+      });
+      footer.appendChild(trashButton);
       item.appendChild(footer);
       elements.sourceQueueList.appendChild(item);
     }
   }
 
 
+
+  async function loadTrash() {
+    if (!state.isAdmin || !elements.trashList) return;
+    elements.trashList.replaceChildren(createMessage("Carregando lixeira…"));
+    try {
+      const data = await apiFetch("/admin/trash");
+      elements.trashList.replaceChildren();
+      const items = Array.isArray(data.items) ? data.items : [];
+      if (!items.length) elements.trashList.appendChild(createMessage("A lixeira está vazia."));
+      for (const entry of items) {
+        const item = createElement("li", "source-queue-item");
+        item.appendChild(createElement("strong", "source-queue-title", "Fonte removida · " + entry.item_id));
+        item.appendChild(createElement("p", "muted", "Movida para a lixeira em " + formatDate(entry.created_at)));
+        const restore = createElement("button", "button button-outline", "Restaurar");
+        restore.type = "button";
+        restore.addEventListener("click", async () => {
+          restore.disabled = true;
+          try { await apiFetch("/admin/trash/" + encodeURIComponent(entry.id) + "/restore", { method: "POST", body: {} }); await loadTrash(); await loadSourceQueue(); }
+          catch (error) { setStatus(elements.trashStatus, error.message || "Falha ao restaurar.", true); }
+          finally { restore.disabled = false; }
+        });
+        item.appendChild(restore);
+        elements.trashList.appendChild(item);
+      }
+      setStatus(elements.trashStatus, items.length + " item(ns) na lixeira.");
+    } catch (error) { setStatus(elements.trashStatus, error.message || "Não foi possível carregar a lixeira.", true); }
+  }
+
   async function handleSourceIntake(event) {
     event.preventDefault();
     if (!state.isAdmin || !elements.sourceIntakeForm) return;
+    const selectedFiles = Array.from(elements.sourceIntakeFiles?.files || []);
     const payload = {
       urls: elements.sourceIntakeUrls ? elements.sourceIntakeUrls.value : "",
       raw_text: elements.sourceIntakeText ? elements.sourceIntakeText.value : "",
@@ -758,17 +808,30 @@
     setStatus(elements.sourceIntakeStatus, "Enviando material para a fila segura…");
     setButtonLoading(submit, true, "Adicionando…");
     try {
-      const result = await apiFetch("/admin/sources", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": state.csrfToken },
-        body: JSON.stringify(payload)
-      });
-      setStatus(elements.sourceIntakeStatus, result.message || "Material adicionado à fila.");
+      let result;
+      if (selectedFiles.length) {
+        if (selectedFiles.length > 3) throw new Error("Selecione no máximo 3 arquivos por envio.");
+        const files = await Promise.all(selectedFiles.map(file => new Promise((resolve, reject) => {
+          if (file.size > 1500000) return reject(new Error(file.name + " ultrapassa 1,5 MB."));
+          const reader = new FileReader();
+          reader.onload = () => resolve({ name: file.name, mime_type: file.type, data: reader.result });
+          reader.onerror = () => reject(new Error("Não foi possível ler " + file.name + "."));
+          reader.readAsDataURL(file);
+        })));
+        result = await apiFetch("/admin/upload-analyze", { method: "POST", body: { files, title: payload.title, context: elements.sourceIntakeContext?.value || payload.raw_text } });
+        setStatus(elements.sourceIntakeStatus, result.message || "Análise sugerida salva na fila.");
+      } else {
+        result = await apiFetch("/admin/sources", { method: "POST", body: payload });
+        setStatus(elements.sourceIntakeStatus, result.message || "Material adicionado à fila.");
+      }
       if (elements.sourceIntakeUrls) elements.sourceIntakeUrls.value = "";
       if (elements.sourceIntakeText) elements.sourceIntakeText.value = "";
       if (elements.sourceIntakeMedia) elements.sourceIntakeMedia.value = "";
       if (elements.sourceIntakeTitle) elements.sourceIntakeTitle.value = "";
+      if (elements.sourceIntakeFiles) elements.sourceIntakeFiles.value = "";
+      if (elements.sourceIntakeContext) elements.sourceIntakeContext.value = "";
       await loadSourceQueue();
+      await loadTrash();
     } catch (error) {
       setStatus(elements.sourceIntakeStatus, error.message || "Não foi possível adicionar o material.", true);
     } finally {
@@ -1873,6 +1936,7 @@
     });
     elements.refreshDocuments?.addEventListener("click", loadDocuments);
     elements.refreshSourceQueue?.addEventListener("click", loadSourceQueue);
+    elements.refreshTrash?.addEventListener("click", loadTrash);
     elements.processSourceQueue?.addEventListener("click", () => processSourceQueue());
     elements.retrySourceErrors?.addEventListener("click", () => processSourceQueue({ retryErrors: true }));
     elements.sourceQueueSearch?.addEventListener("input", renderSourceQueue);

@@ -31,3 +31,7 @@
 .admin-app .source-queue-flag{margin:.45rem 0;padding:.4rem .55rem;border-left:3px solid var(--green);background:#f1f4ef;font-size:.82rem}
 .admin-app .source-queue-flag-warning{border-left-color:var(--accent);background:#f7eeee}
 @media(max-width:760px){.admin-app .source-queue-toolbar{grid-template-columns:1fr}.admin-app .source-queue-counts{gap:.35rem}}
+
+.admin-app .source-queue-item-footer{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.admin-app #source-intake-files{padding:.65rem;border:1px solid var(--border);background:#fff}
+.admin-app #trash-list{padding-left:0;list-style:none}
