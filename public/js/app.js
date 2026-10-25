@@ -58,6 +58,7 @@
     refreshSourceQueue: $("#refresh-source-queue"),
     processSourceQueue: $("#process-source-queue"),
     retrySourceErrors: $("#retry-source-errors"),
+    rebuildSourceConnections: $("#rebuild-source-connections"),
     geminiReviewPanel: $("#gemini-review-panel"),
 
     search: $("#search"),
@@ -857,6 +858,26 @@
       setStatus(elements.sourceQueueStatus, error.message || "Não foi possível processar as fontes.", true);
     } finally {
       setButtonLoading(triggerButton, false);
+    }
+  }
+
+
+  async function rebuildSourceConnections() {
+    if (!state.isAdmin || !elements.rebuildSourceConnections) return;
+    setButtonLoading(elements.rebuildSourceConnections, true, "Reconstruindo…");
+    setStatus(elements.sourceQueueStatus, "Recuperando nomes e vínculos das fontes já processadas…");
+    try {
+      const data = await apiFetch("/admin/rebuild-source-connections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": state.csrfToken },
+        body: JSON.stringify({})
+      });
+      await Promise.all([loadSourceQueue(), loadGraph()]);
+      setStatus(elements.sourceQueueStatus, data.message || "Reconstrução concluída.");
+    } catch (error) {
+      setStatus(elements.sourceQueueStatus, error.message || "Não foi possível reconstruir os vínculos.", true);
+    } finally {
+      setButtonLoading(elements.rebuildSourceConnections, false);
     }
   }
 
@@ -1911,6 +1932,7 @@
     elements.refreshTrash?.addEventListener("click", loadTrash);
     elements.processSourceQueue?.addEventListener("click", () => processSourceQueue());
     elements.retrySourceErrors?.addEventListener("click", () => processSourceQueue({ retryErrors: true }));
+    elements.rebuildSourceConnections?.addEventListener("click", rebuildSourceConnections);
     elements.sourceQueueSearch?.addEventListener("input", renderSourceQueue);
     elements.sourceQueueStatusFilter?.addEventListener("change", renderSourceQueue);
 
