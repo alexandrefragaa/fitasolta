@@ -1247,6 +1247,30 @@ async function processSourceItems(req,sources){
  return{ok:true,processed:results.length,completed:results.filter((x)=>x.status==="completed"&&!x.backfillFailed).length,errors:results.filter((x)=>x.status==="error"||x.backfillFailed).length,results};
 }
 
+app.post("/api/admin/rebuild-source-connections", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
+  const queue = await readTursoSourceQueue();
+  let scanned = 0, rebuilt = 0, skipped = 0, errors = 0;
+  for (const source of queue) {
+    if (source.status !== "completed" || !String(source.summary || "").includes("FICHA_AUTO_JSON:")) continue;
+    scanned++;
+    try {
+      const raw = String(source.summary).split("FICHA_AUTO_JSON:").slice(1).join("FICHA_AUTO_JSON:").trim();
+      const review = parseModelJson(raw);
+      if (!review || !Array.isArray(review.people) || !Array.isArray(review.organizations) || !Array.isArray(review.cases)) { skipped++; continue; }
+      await persistSourceConnections(source, review);
+      rebuilt++;
+    } catch (error) {
+      errors++;
+      console.warn("Falha ao reconstruir vínculos da fonte", String(source.id || "").slice(0, 80), error?.name || "Error");
+    }
+  }
+  await audit(req, "source_connections_rebuilt", "source_queue");
+  res.set("Cache-Control", "no-store").json({
+    ok: true, scanned, rebuilt, skipped, errors,
+    message: `Reconstrução concluída: ${rebuilt} fontes verificadas, ${skipped} sem dados estruturados e ${errors} com erro. Atualize o mural para conferir os vínculos.`
+  });
+}));
+
 app.post("/api/admin/process-sources", processSourcesLimiter, requireCsrf, requireAdmin, async (req, res) => {
   if (!GEMINI_API_KEY.trim()) {
     return res.status(503).json({ error: "Configure GEMINI_API_KEY nas variáveis de ambiente da Vercel antes de processar fontes." });
