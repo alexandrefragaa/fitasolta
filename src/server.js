@@ -1257,7 +1257,7 @@ app.post("/api/admin/rebuild-source-connections", requireCsrf, requireAdmin, asy
       const raw = String(source.summary).split("FICHA_AUTO_JSON:").slice(1).join("FICHA_AUTO_JSON:").trim();
       const review = parseModelJson(raw);
       if (!review || !Array.isArray(review.people) || !Array.isArray(review.organizations) || !Array.isArray(review.cases)) { skipped++; continue; }
-      await persistSourceConnections(source, review);
+      await persistSourceConnections(Object.assign({}, source, { url: source.original_url || source.url }), review);
       rebuilt++;
     } catch (error) {
       errors++;
