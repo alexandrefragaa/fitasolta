@@ -1552,6 +1552,52 @@
     }
 
     elements.graphDetails.appendChild(list);
+
+    // Contexto documental compartilhado não prova vínculo pessoal ou culpa.
+    const documentIds = new Set();
+    for (const relation of related) {
+      const otherId = relation.source_id === entity.id ? relation.target_id : relation.source_id;
+      const other = state.entities.find((item) => item.id === otherId);
+      if (other && (other.type === "document" || other.type === "source")) documentIds.add(other.id);
+    }
+    const shared = new Map();
+    for (const relation of related) {
+      const docId = relation.source_id === entity.id ? relation.target_id : relation.source_id;
+      if (!documentIds.has(docId)) continue;
+      for (const candidateRelation of state.relationships) {
+        if (candidateRelation.id === relation.id) continue;
+        const candidateId = candidateRelation.source_id === docId ? candidateRelation.target_id
+          : candidateRelation.target_id === docId ? candidateRelation.source_id : null;
+        if (!candidateId || candidateId === entity.id) continue;
+        const candidate = state.entities.find((item) => item.id === candidateId);
+        if (!candidate || candidate.type === "document" || candidate.type === "source") continue;
+        if (!shared.has(candidate.id)) shared.set(candidate.id, { entity: candidate, docs: new Set() });
+        shared.get(candidate.id).docs.add(docId);
+      }
+    }
+    const sharedSection = createElement("section", "entity-shared-context");
+    sharedSection.appendChild(createElement("h4", "", `Também citados nas mesmas fontes (${shared.size})`));
+    sharedSection.appendChild(createElement("p", "muted", "Contexto documental compartilhado; isso, por si só, não demonstra vínculo pessoal, participação conjunta ou culpa."));
+    if (!shared.size) {
+      sharedSection.appendChild(createMessage("Ainda não há outras entidades ligadas às mesmas fontes."));
+    } else {
+      const sharedList = createElement("ul", "entity-relations");
+      for (const { entity: candidate, docs } of [...shared.values()].sort((a, b) => a.entity.name.localeCompare(b.entity.name, "pt-BR"))) {
+        const item = createElement("li", "entity-shared-item");
+        const open = createElement("button", "button button-outline entity-related-link", candidate.name);
+        open.type = "button";
+        open.addEventListener("click", () => {
+          state.selectedEntityId = candidate.id;
+          renderGraph();
+          renderEntityDetails(candidate);
+        });
+        item.appendChild(open);
+        item.appendChild(createElement("p", "muted", `${readableType(candidate.type)} · ${docs.size} fonte(s) em comum`));
+        sharedList.appendChild(item);
+      }
+      sharedSection.appendChild(sharedList);
+    }
+    elements.graphDetails.appendChild(sharedSection);
   }
 
   function applySearch() {
@@ -1971,8 +2017,8 @@
       await checkAdminSession();
     } else {
       // A área pública não faz chamadas de autenticação nem carrega controles admin.
-      await Promise.allSettled([loadPublicBoard(), loadGraph(), checkHealth()]);
-      window.setInterval(() => { if (document.visibilityState !== "hidden") loadPublicBoard(); }, 120000);
+      await Promise.allSettled([loadPublicBoard(), loadGraph()]);
+      window.setInterval(() => { if (document.visibilityState !== "hidden") { loadPublicBoard(); loadGraph(); } }, 60000);
     }
 
     // O token pode ter falhado na primeira tentativa se a API
