@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" role="img" aria-labelledby="title desc">
+<title id="title">FitaSolta</title><desc id="desc">Logotipo FitaSolta em branco e vermelho sobre fundo escuro.</desc>
+<rect width="1000" height="300" rx="12" fill="#101316"/>
+<g transform="translate(54 38)">
+<path fill="#fff" d="M96 42 266 0v49L106 89 96 42Z"/>
+<path fill="#fff" d="M35 85 56 78 77 222 56 189Z"/>
+<path fill="#fff" d="M65 91 96 80 132 103 172 85 199 104 179 137 209 159 190 198 139 208 101 238 101 187 151 170 111 151 80 132Z"/>
+<path fill="#fff" d="M0 112 22 105 44 197 25 166Z"/>
+<path fill="#fff" d="M107 143 153 126 177 150 151 170Z"/>
+<path fill="#d92336" d="M211 85 247 77 272 91 289 137 263 153 250 190 218 205 196 190 210 152 196 121Z"/>
+<path fill="#d92336" d="M267 157 301 139 296 171 265 189Z"/>
+<path fill="#101316" d="M224 93 235 98 249 143 238 148Z"/>
+</g>
+<text x="385" y="183" fill="#fff" font-family="Arial,Helvetica,sans-serif" font-size="104" font-weight="500" letter-spacing="-4">FitaSolta</text>
+</svg>
