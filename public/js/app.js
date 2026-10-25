@@ -69,7 +69,6 @@
     boardSummary: $("#board-summary"),
     sourcePersonFilter: $("#source-person-filter"),
     sourceVerdictFilter: $("#source-verdict-filter"),
-    sourceCategoryFilter: $("#source-category-filter"),
     sourceLiveState: $("#source-live-state"),
     refreshSources: $("#refresh-sources"),
     graphDetails: $("#entity-details"),
@@ -966,7 +965,6 @@
   function renderPublicSources() {
     if (!elements.publicSourceList) return;
     const term = normalizeInvestigativeSearch(elements.search?.value || "");
-    const categoryFilter = elements.sourceCategoryFilter?.value || "";
     const personFilter = normalizeInvestigativeSearch(elements.sourcePersonFilter?.value || state.publicSourcePerson || "");
     const verdictFilter = elements.sourceVerdictFilter?.value || state.publicSourceVerdict || "";
     const mode = state.publicSourceMode || "all";
@@ -974,7 +972,7 @@
 
     const visible = all.filter((source) => {
       const d = parseSourceSummary(source.summary || source.description || "");
-      const category = source.category || d.category || "Outros";
+      const category = source.category || d.category || "";
       const ficha = d.ficha || {};
       const claim = ficha.claim || null;
       const fact = claim?.fact_check || null;
@@ -991,7 +989,7 @@
       const personMatches = !personFilter || searchText.includes(personFilter);
       const verdictMatches = !verdictFilter || fact?.verdict === verdictFilter;
       return modeMatches && personMatches && verdictMatches &&
-        (!term || searchText.includes(term)) && (!categoryFilter || category === categoryFilter);
+        (!term || searchText.includes(term));
     });
 
     if (elements.boardSummary) {
@@ -999,7 +997,7 @@
         elements.boardSummary.textContent = "Arquivo indisponível. A conexão com a base de registros falhou.";
       } else {
         const parts = [visible.length + (visible.length === 1 ? " registro" : " registros")];
-        if (term || categoryFilter || personFilter || verdictFilter || mode !== "all") parts.push("filtros aplicados");
+        if (term || personFilter || verdictFilter || mode !== "all") parts.push("filtros aplicados");
         elements.boardSummary.textContent = parts.join(" · ");
       }
     }
@@ -1031,9 +1029,7 @@
       const videoId = /^[A-Za-z0-9_-]{11}$/.test(candidateId) ? candidateId : youtubeId(videoSourceUrl);
       const imageUrl = String(ficha.image_url || (source.media_type === "image" ? source.media_url : ""));
       const card = createElement("article", "public-source-card" + (videoId ? " has-video" : ""));
-      const metadata = createElement("p", "source-card-meta");
-      metadata.append(createElement("span", "", source.category || details.category || "Outros"));
-      card.append(metadata, createElement("h3", "source-card-title", source.title || "Fonte sem título"));
+      card.append(createElement("h3", "source-card-title", source.title || "Fonte sem título"));
 
       if (videoId) {
         const start = Math.max(0, Number(ficha.video_start || 0) || timestampSeconds(claim?.timestamp));
@@ -1925,7 +1921,6 @@
 
     elements.refreshGraph?.addEventListener("click", () => { loadGraph(); loadPublicBoard(); });
     elements.refreshSources?.addEventListener("click", loadPublicBoard);
-    elements.sourceCategoryFilter?.addEventListener("change", renderPublicSources);
     elements.sourcePersonFilter?.addEventListener("change", () => {
       state.publicSourcePerson = elements.sourcePersonFilter.value || "";
       renderPublicSources();
