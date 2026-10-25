@@ -792,6 +792,32 @@ async function discoverDailySources(queue){
 async function ensureGeneratedEntity(name,type,description,url,date,isDoc=false){const n=cleanString(name,{min:2,max:200,required:true});if(!n)return null;if(isDoc&&url){const x=await db.prepare("SELECT id FROM entities WHERE source_url=? LIMIT 1").get(url);if(x?.id)return x.id}const old=await db.prepare("SELECT id FROM entities WHERE lower(name)=lower(?) AND type=? LIMIT 1").get(n,type);if(old?.id)return old.id;const id=crypto.randomUUID();await insertEntity.run(id,n,type,cleanString(description||"",{max:4500})||"",url||"",isIsoDate(date||"")?date:"","nao_verificado");return id}
 async function persistSourceConnections(source,r){const date=isIsoDate(r.event_date||"")?r.event_date:"",doc=await ensureGeneratedEntity(r.title,"document","Fonte extraída automaticamente. "+formatStructuredSourceSummary(r),source.url,date,true);if(!doc)return;const names=[...r.people.map((name)=>({name,type:"person"})),...r.organizations.map((name)=>({name,type:"institution"})),...r.cases.map((name)=>({name,type:"process"}))];for(const entry of names){if(!entry.name||entry.name.toLowerCase()===r.title.toLowerCase())continue;const id=await ensureGeneratedEntity(entry.name,entry.type,"Menção detectada automaticamente em fonte pública; não implica culpa ou comprovação independente.","",date);if(!id||id===doc)continue;const found=await db.prepare("SELECT id FROM relationships WHERE source_id=? AND target_id=? AND source_url=? LIMIT 1").get(id,doc,source.url);if(found?.id)continue;await db.prepare("INSERT INTO relationships (id,source_id,target_id,label,relation_type,description,source_url,source_date,evidence_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(crypto.randomUUID(),id,doc,"mencionado em","referencia_documentada","O termo aparece na fonte. A ligação registra menção, não responsabilidade nem culpa.",source.url,date,"documentado")}}
 
+async function rebuildStoredSourceConnections(queue, limit = 30) {
+  let scanned = 0, rebuilt = 0, skipped = 0, errors = 0;
+  const candidates = queue.filter((source) =>
+    source.status === "completed" &&
+    String(source.summary || "").includes("FICHA_AUTO_JSON:") &&
+    !/^backfill_failed:/i.test(String(source.error_message || ""))
+  ).slice(0, limit);
+  for (const source of candidates) {
+    scanned++;
+    try {
+      const raw = String(source.summary).split("FICHA_AUTO_JSON:").slice(1).join("FICHA_AUTO_JSON:").trim();
+      const review = parseModelJson(raw);
+      if (!review || !Array.isArray(review.people) || !Array.isArray(review.organizations) || !Array.isArray(review.cases)) {
+        skipped++;
+        continue;
+      }
+      await persistSourceConnections(Object.assign({}, source, { url: source.original_url || source.url }), review);
+      rebuilt++;
+    } catch (error) {
+      errors++;
+      console.warn("Reconstrução automática de conexões falhou:", error?.name || "Error");
+    }
+  }
+  return { scanned, rebuilt, skipped, errors };
+}
+
 function isAllowedSourceUrl(value) {
   const safe = sanitizeTursoSourceUrl(value);
   if (!safe) return false;
@@ -1305,6 +1331,8 @@ app.get("/api/cron/process-sources",async(req,res)=>{
  if(!CRON_SECRET||req.get("authorization")!=="Bearer "+CRON_SECRET)return res.status(401).json({error:"Não autorizado."});
  if(!GEMINI_API_KEY.trim())return res.status(503).json({error:"GEMINI_API_KEY não está configurada."});
  let queue;try{queue=await readTursoSourceQueue()}catch(e){console.error("Cron Turso:",e?.code||e?.name||"Error");return res.status(502).json({error:"Não foi possível consultar a fila."})}
+ let connectionSync={scanned:0,rebuilt:0,skipped:0,errors:0};
+ try{connectionSync=await rebuildStoredSourceConnections(queue,30)}catch(e){console.warn("Sincronização automática de conexões falhou:",e?.name||"Error")}
  let discovered=[];try{discovered=await discoverDailySources(queue);if(discovered.length)queue=await readTursoSourceQueue()}catch(e){console.warn("Descoberta diária falhou:",e?.name||"Error")}
  const pendingSources=queue.filter((x)=>x.status==="pending").slice(0,2);
  const legacyCompleted=queue.filter((x)=>x.status==="completed"&&!String(x.summary||"").includes("FICHA_AUTO_JSON:")&&(x.url||x.original_url||x.raw_text||x.media_url)&&!/^backfill_failed:/i.test(String(x.error_message||"")))
@@ -1321,9 +1349,9 @@ app.get("/api/cron/process-sources",async(req,res)=>{
   mode=sources.some((x)=>x.status==="processing")?"recover_stale":"retry_errors";
  }
  
- if(!sources.length)return res.set("Cache-Control","no-store").json({ok:true,mode:"idle",discovered:discovered.length,processed:0,completed:0,errors:0});
+ if(!sources.length)return res.set("Cache-Control","no-store").json({ok:true,mode:"idle",discovered:discovered.length,connections:connectionSync,processed:0,completed:0,errors:0});
  const result=await processSourceItems(req,sources);console.log("Cron FitaSolta:",JSON.stringify({mode,discovered:discovered.length,processed:result.processed,completed:result.completed,errors:result.errors}));
- return res.set("Cache-Control","no-store").json({ok:result.errors===0,mode,discovered:discovered.length,processed:result.processed,completed:result.completed,errors:result.errors});
+ return res.set("Cache-Control","no-store").json({ok:result.errors===0&&connectionSync.errors===0,mode,discovered:discovered.length,connections:connectionSync,processed:result.processed,completed:result.completed,errors:result.errors});
 });
 
 app.get("/api/admin/sources", requireAdmin, async (req, res) => {
