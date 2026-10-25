@@ -34,6 +34,19 @@ test("public archive hides processing metadata and keeps YouTube source fallback
  assert.ok(app.includes("source.media_url, source.original_url, source.url"));
  assert.ok(app.includes("Abrir vídeo original"));
 });
+test("duplicate detection treats YouTube URL variants as the same video",()=>{
+ assert.ok(app.includes('return "youtube:" + videoId'));
+ assert.ok(server.includes('return"youtube:"+videoId'));
+});
+test("contradiction filter requires a usable source URL and videos link to the indicated timestamp",()=>{
+ assert.ok(app.includes('fact.contradictory_sources.some((item) => Boolean(safeHttpUrl(item?.url)))'));
+ assert.ok(app.includes("videoTimestampUrl(videoSourceUrl, start)"));
+ assert.ok(app.includes("Abrir vídeo no trecho indicado"));
+});
+test("AI review is clearly labeled as a suggestion and not auto-published",()=>{
+ assert.ok(app.includes("SUGESTÃO DE IA · NÃO SALVA NEM PUBLICA ESTA FICHA"));
+ assert.ok(app.includes("Resultado sugerido:"));
+});
 test("admin queue supports status, duplicate and mural-link triage",()=>{
  assert.ok(admin.includes('id="source-queue-status-filter"'));
  assert.ok(admin.includes('id="source-queue-counts"'));
