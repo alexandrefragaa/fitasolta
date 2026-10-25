@@ -797,36 +797,113 @@ async function discoverDailySources(queue){
 async function ensureGeneratedEntity(name,type,description,url,date,isDoc=false){const n=cleanString(name,{min:2,max:200,required:true});if(!n)return null;if(isDoc&&url){const x=await db.prepare("SELECT id FROM entities WHERE source_url=? LIMIT 1").get(url);if(x?.id)return x.id}const old=await db.prepare("SELECT id FROM entities WHERE lower(name)=lower(?) AND type=? LIMIT 1").get(n,type);if(old?.id)return old.id;const id=crypto.randomUUID();await insertEntity.run(id,n,type,cleanString(description||"",{max:4500})||"",url||"",isIsoDate(date||"")?date:"","nao_verificado");return id}
 async function persistSourceConnections(source,r){const date=isIsoDate(r.event_date||"")?r.event_date:"",doc=await ensureGeneratedEntity(r.title,"document","Fonte extraída automaticamente. "+formatStructuredSourceSummary(r),source.url,date,true);if(!doc)return;const names=[...r.people.map((name)=>({name,type:"person"})),...r.organizations.map((name)=>({name,type:"institution"})),...r.cases.map((name)=>({name,type:"process"}))];for(const entry of names){if(!entry.name||entry.name.toLowerCase()===r.title.toLowerCase())continue;const sourceContext="Citada em: "+String(r.title||"Fonte pública")+". "+(r.summary?"Contexto informado pela fonte: "+r.summary+" ":"")+(r.legal_status?"Andamento jurídico mencionado: "+r.legal_status+" ":"")+"A menção registra contexto documental e não implica culpa, participação criminosa ou relação pessoal comprovada." ;const id=await ensureGeneratedEntity(entry.name,entry.type,"Menção detectada automaticamente em fonte pública; não implica culpa ou comprovação independente.","",date);if(!id||id===doc)continue;const existingEntity=await db.prepare("SELECT description FROM entities WHERE id=? LIMIT 1").get(id);const currentDescription=String(existingEntity?.description||"");if(!currentDescription.toLocaleLowerCase("pt-BR").includes(String(r.title||"").toLocaleLowerCase("pt-BR"))){const updatedDescription=[currentDescription,sourceContext].filter(Boolean).join("\n\n").slice(0,4500);await db.prepare("UPDATE entities SET description=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(updatedDescription,id)}const found=await db.prepare("SELECT id FROM relationships WHERE source_id=? AND target_id=? AND source_url=? LIMIT 1").get(id,doc,source.url);if(found?.id)continue;await db.prepare("INSERT INTO relationships (id,source_id,target_id,label,relation_type,description,source_url,source_date,evidence_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(crypto.randomUUID(),id,doc,"mencionado em","referencia_documentada","O termo aparece na fonte. A ligação registra menção, não responsabilidade nem culpa.",source.url,date,"documentado")}}
 
-async function rebuildStoredSourceConnections(queue, limit = 30) {
+function parseStoredSourceReview(source) {
+  const stored = String(source.summary || "");
+  const marker = "FICHA_AUTO_JSON:";
+  const markerPosition = stored.indexOf(marker);
+  let review = null;
+
+  if (markerPosition >= 0) {
+    const rawJson = stored.slice(markerPosition + marker.length).trim();
+    review = parseModelJson(rawJson);
+    if (review && Array.isArray(review.people) && Array.isArray(review.organizations) && Array.isArray(review.cases)) {
+      return {
+        ...review,
+        title: review.title || source.title || source.url || "Fonte pública",
+        category: review.category || "Outros",
+        event_date: review.event_date || "",
+        people: review.people,
+        organizations: review.organizations,
+        cases: review.cases,
+        legal_status: review.legal_status || "",
+        summary: review.summary || "",
+        key_points: Array.isArray(review.key_points) ? review.key_points : [],
+        source_limitations: review.source_limitations || ""
+      };
+    }
+  }
+
+  // O formato atual salva os campos em linhas legíveis, sem o marcador JSON.
+  // Reconstrói somente os nomes literalmente presentes nessas linhas.
+  const narrative = markerPosition >= 0 ? stored.slice(0, markerPosition).trim() : stored;
+  const lines = narrative.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const read = (label) => {
+    const prefix = label.toLocaleLowerCase("pt-BR") + ":";
+    const line = lines.find((item) => item.toLocaleLowerCase("pt-BR").startsWith(prefix));
+    return line ? line.slice(line.indexOf(":") + 1).trim() : "";
+  };
+  const splitList = (value, separator) => String(value || "").split(separator)
+    .map((item) => item.replace(/^[-–•\s]+/, "").replace(/\s+/g, " ").trim())
+    .filter((item) => item.length >= 2 && item.length <= 200 &&
+      !/^(?:nenhum|nenhuma|não identificado|nao identificado|não identificada|nao identificada|não informado|nao informado|sem dados|n\/a|null|undefined|-)$/i.test(item));
+
+  const category = read("Categoria");
+  const people = splitList(read("Pessoas citadas"), /[,;|]+/);
+  const organizations = splitList(read("Instituições citadas"), /[,;|]+/);
+  const cases = splitList(read("Casos e processos"), /[;|]+/);
+  const summary = read("Resumo da fonte");
+  const hasStructuredFields = Boolean(category || summary ||
+    lines.some((line) => /^(?:pessoas citadas|instituições citadas|casos e processos)\s*:/i.test(line)));
+  if (!hasStructuredFields) return null;
+
+  return {
+    title: source.title || source.url || "Fonte pública",
+    category: category || "Outros",
+    event_date: read("Data mencionada"),
+    people,
+    organizations,
+    cases,
+    legal_status: read("Andamento mencionado pela fonte"),
+    summary: summary || narrative.slice(0, 700),
+    key_points: lines.filter((line) => /^ponto relevante\s*:/i.test(line))
+      .map((line) => line.slice(line.indexOf(":") + 1).trim()).filter(Boolean).slice(0, 4),
+    source_limitations: read("Limites do material")
+  };
+}
+
+async function rebuildStoredSourceConnections(queue, limit = 200) {
   let scanned = 0, rebuilt = 0, skipped = 0, errors = 0;
-  // Só considera itens ainda não sincronizados. Assim cada execução diária
-  // avança para as próximas fontes, em vez de repetir eternamente as mesmas 30.
-  const syncedRows = await db.prepare("SELECT source_url FROM source_connection_sync").all();
-  const synced = new Set(syncedRows.map((row) => String(row.source_url || "")));
+  const [syncedRows, documentRows] = await Promise.all([
+    db.prepare("SELECT source_url, result_json FROM source_connection_sync").all(),
+    db.prepare("SELECT source_url FROM entities WHERE source_url <> ''").all()
+  ]);
+  const synced = new Map();
+  for (const row of syncedRows) {
+    let result = {};
+    try { result = JSON.parse(String(row.result_json || "{}")); } catch {}
+    synced.set(String(row.source_url || ""), result.format === "summary-v1");
+  }
+  const existingSourceUrls = new Set(documentRows.map((row) => String(row.source_url || "")));
   const candidates = queue.filter((source) => {
     const sourceUrl = String(source.original_url || source.url || "").trim();
+    const summary = String(source.summary || "");
+    const hasStoredSummary = summary.includes("FICHA_AUTO_JSON:") ||
+      /^(?:Categoria|Pessoas citadas|Instituições citadas|Casos e processos|Resumo da fonte)\s*:/im.test(summary);
+    const needsRebuild = !synced.get(sourceUrl) || !existingSourceUrls.has(sourceUrl);
     return source.status === "completed" &&
       sourceUrl &&
-      !synced.has(sourceUrl) &&
-      String(source.summary || "").includes("FICHA_AUTO_JSON:") &&
+      hasStoredSummary &&
+      needsRebuild &&
       !/^backfill_failed:/i.test(String(source.error_message || ""));
   }).sort((a, b) =>
-    (Date.parse(String(a.created_at || "")) || 0) -
-    (Date.parse(String(b.created_at || "")) || 0)
-  ).slice(0, Math.max(1, Math.min(100, Number.parseInt(limit, 10) || 30)));
+    (Date.parse(String(a.created_at || "")) || 0) - (Date.parse(String(b.created_at || "")) || 0)
+  ).slice(0, Math.max(1, Math.min(200, Number.parseInt(limit, 10) || 200)));
+
   for (const source of candidates) {
     scanned++;
     const sourceUrl = String(source.original_url || source.url || "").trim();
     try {
-      const raw = String(source.summary).split("FICHA_AUTO_JSON:").slice(1).join("FICHA_AUTO_JSON:").trim();
-      const review = parseModelJson(raw);
+      const review = parseStoredSourceReview(source);
       if (!review || !Array.isArray(review.people) || !Array.isArray(review.organizations) || !Array.isArray(review.cases)) {
         skipped++;
         continue;
       }
       await persistSourceConnections(Object.assign({}, source, { url: sourceUrl }), review);
       await db.prepare("INSERT OR REPLACE INTO source_connection_sync (source_url, synced_at, result_json) VALUES (?, CURRENT_TIMESTAMP, ?)")
-        .run(sourceUrl, JSON.stringify({ entities: review.people.length + review.organizations.length + review.cases.length }));
+        .run(sourceUrl, JSON.stringify({
+          format: "summary-v1",
+          entities: review.people.length + review.organizations.length + review.cases.length
+        }));
       rebuilt++;
     } catch (error) {
       errors++;
@@ -1292,26 +1369,13 @@ async function processSourceItems(req,sources){
 }
 
 app.post("/api/admin/rebuild-source-connections", requireCsrf, requireAdmin, asyncHandler(async (req, res) => {
-  const queue = await readTursoSourceQueue();
-  let scanned = 0, rebuilt = 0, skipped = 0, errors = 0;
-  for (const source of queue) {
-    if (source.status !== "completed" || !String(source.summary || "").includes("FICHA_AUTO_JSON:")) continue;
-    scanned++;
-    try {
-      const raw = String(source.summary).split("FICHA_AUTO_JSON:").slice(1).join("FICHA_AUTO_JSON:").trim();
-      const review = parseModelJson(raw);
-      if (!review || !Array.isArray(review.people) || !Array.isArray(review.organizations) || !Array.isArray(review.cases)) { skipped++; continue; }
-      await persistSourceConnections(Object.assign({}, source, { url: source.original_url || source.url }), review);
-      rebuilt++;
-    } catch (error) {
-      errors++;
-      console.warn("Falha ao reconstruir vínculos da fonte", String(source.id || "").slice(0, 80), error?.name || "Error");
-    }
-  }
+  const queue = await readTursoSourceQueue(1000, true);
+  const result = await rebuildStoredSourceConnections(queue, 200);
   await audit(req, "source_connections_rebuilt", "source_queue");
   res.set("Cache-Control", "no-store").json({
-    ok: true, scanned, rebuilt, skipped, errors,
-    message: `Reconstrução concluída: ${rebuilt} fontes verificadas, ${skipped} sem dados estruturados e ${errors} com erro. Atualize o mural para conferir os vínculos.`
+    ok: result.errors === 0,
+    ...result,
+    message: `Reconstrução concluída: ${result.rebuilt} fontes processadas, ${result.skipped} sem estrutura reconhecida e ${result.errors} com erro. Atualize o mural para conferir os vínculos.`
   });
 }));
 
@@ -1350,7 +1414,7 @@ app.get("/api/cron/process-sources",async(req,res)=>{
  if(!GEMINI_API_KEY.trim())return res.status(503).json({error:"GEMINI_API_KEY não está configurada."});
  let queue;try{queue=await readTursoSourceQueue(1000, true)}catch(e){console.error("Cron Turso:",e?.code||e?.name||"Error");return res.status(502).json({error:"Não foi possível consultar a fila."})}
  let connectionSync={scanned:0,rebuilt:0,skipped:0,errors:0};
- try{connectionSync=await rebuildStoredSourceConnections(queue,30)}catch(e){console.warn("Sincronização automática de conexões falhou:",e?.name||"Error")}
+ try{connectionSync=await rebuildStoredSourceConnections(queue,200)}catch(e){console.warn("Sincronização automática de conexões falhou:",e?.name||"Error")}
  let discovered=[];try{discovered=await discoverDailySources(queue);if(discovered.length)queue=await readTursoSourceQueue()}catch(e){console.warn("Descoberta diária falhou:",e?.name||"Error")}
  const pendingSources=queue.filter((x)=>x.status==="pending").slice(0,2);
  const legacyCompleted=queue.filter((x)=>x.status==="completed"&&!String(x.summary||"").includes("FICHA_AUTO_JSON:")&&(x.url||x.original_url||x.raw_text||x.media_url)&&!/^backfill_failed:/i.test(String(x.error_message||"")))

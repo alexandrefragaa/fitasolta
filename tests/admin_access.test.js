@@ -31,6 +31,14 @@ test("queue stores raw text and media but public response hides raw text",()=>{
  const a=server.indexOf('app.get("/api/sources"'),b=server.indexOf("/* Fontes externas são registradas",a),route=server.slice(a,b);
  assert.ok(route.includes('summary:item.summary||""'));assert.ok(!route.includes("raw_text:"));
 });
+test("stored source connections rebuild from both JSON and readable source summaries",()=>{
+ assert.ok(server.includes("function parseStoredSourceReview(source)"));
+ assert.ok(server.includes('read("Pessoas citadas")'));
+ assert.ok(server.includes('read("Instituições citadas")'));
+ assert.ok(server.includes('read("Casos e processos")'));
+ assert.ok(server.includes("format: \"summary-v1\""));
+ assert.ok(server.includes("rebuildStoredSourceConnections(queue, 200)"));
+});
 test("video caption parsing and evidence grounding exist",()=>{
  assert.ok(server.includes("fetchYouTubeTranscriptFromHtml"));assert.ok(server.includes("fetchYouTubeTranscriptById"));assert.ok(server.includes("FICHA_AUTO_JSON:"));assert.ok(server.includes('tools: [{ google_search: {} }]'));
  assert.ok(server.includes('verdict = "inconclusiva"'));assert.ok(server.includes("verificationBudget={remaining:Math.min(3,sources.length)}"));assert.ok(app.includes("youtube-nocookie.com/embed/"));assert.ok(app.includes("Fontes que contradizem ou limitam"));assert.ok(app.includes("sourcePersonFilter"));assert.ok(app.includes("sourceVerdictFilter"));assert.ok(app.includes("Nenhuma fonte de apoio foi vinculada"));assert.ok(app.includes("não conseguiu vincular uma fonte que contradiga"));
