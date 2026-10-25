@@ -44,6 +44,7 @@
     sourceIntakeMedia: $("#source-intake-media"),
     sourceIntakeFiles: $("#source-intake-files"),
     sourceIntakeContext: $("#source-intake-context"),
+    trashPanel: $("#admin-trash-panel"),
     trashList: $("#trash-list"),
     trashStatus: $("#trash-status"),
     refreshTrash: $("#refresh-trash"),
@@ -379,6 +380,9 @@
     if (elements.sourceIntakePanel) {
       elements.sourceIntakePanel.hidden = !state.isAdmin;
     }
+    if (elements.trashPanel) {
+      elements.trashPanel.hidden = !state.isAdmin;
+    }
 
     if (elements.adminPassword) {
       elements.adminPassword.value = "";
@@ -390,7 +394,8 @@
       await Promise.allSettled([
         loadDocuments(),
         loadAuditEvents(),
-        loadSourceQueue()
+        loadSourceQueue(),
+        loadTrash()
       ]);
     } else {
       if (elements.documentsPanel) {
@@ -407,6 +412,7 @@
 
       state.sourceQueue = [];
       if (elements.sourceQueueList) elements.sourceQueueList.replaceChildren();
+      if (elements.trashList) elements.trashList.replaceChildren();
       if (elements.sourceQueueStatus) setText(elements.sourceQueueStatus, "");
     }
   }
