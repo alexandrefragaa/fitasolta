@@ -22,3 +22,12 @@
 .admin-app .admin-actions{gap:.5rem}
 .admin-app .admin-actions .button{min-height:40px}
 @media(max-width:760px){.admin-app .admin-nav{gap:.35rem .8rem}.admin-app .admin-panel{padding:1rem .8rem}.admin-app .admin-queue-heading .admin-actions .button{flex:1 1 100%}.admin-app .source-queue-list{max-height:60vh}}
+
+/* Triagem operacional da fila: contagens, duplicatas e fontes sem vínculo no mural. */
+.admin-app .source-queue-toolbar{display:grid;grid-template-columns:minmax(0,1fr) minmax(190px,260px);gap:.75rem;align-items:end;margin:.75rem 0 1rem}
+.admin-app .source-queue-counts{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
+.admin-app .queue-count{display:inline-flex;align-items:center;padding:.35rem .55rem;border:1px solid var(--border);background:#fff;font-size:.82rem;line-height:1.35}
+.admin-app .source-queue-toolbar label{display:grid;gap:.3rem;font-size:.85rem}
+.admin-app .source-queue-flag{margin:.45rem 0;padding:.4rem .55rem;border-left:3px solid var(--green);background:#f1f4ef;font-size:.82rem}
+.admin-app .source-queue-flag-warning{border-left-color:var(--accent);background:#f7eeee}
+@media(max-width:760px){.admin-app .source-queue-toolbar{grid-template-columns:1fr}.admin-app .source-queue-counts{gap:.35rem}}

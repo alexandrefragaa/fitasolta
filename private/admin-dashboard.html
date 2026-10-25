@@ -86,8 +86,23 @@
       </div>
 
       <p id="source-queue-status" class="status admin-status" role="status" aria-live="polite"></p>
-      <label class="sr-only" for="source-queue-search">Filtrar fontes</label>
-      <input id="source-queue-search" type="search" placeholder="Filtrar por título, URL, resumo ou erro…" autocomplete="off">
+      <div class="source-queue-toolbar">
+        <div id="source-queue-counts" class="source-queue-counts" aria-live="polite" aria-label="Contagem por estado e vínculo"></div>
+        <label for="source-queue-status-filter">Priorizar
+          <select id="source-queue-status-filter">
+            <option value="all">Todas as fontes</option>
+            <option value="pending">Pendentes</option>
+            <option value="processing">Em processamento</option>
+            <option value="error">Com erro / revisão</option>
+            <option value="completed">Concluídas</option>
+            <option value="duplicates">URLs duplicadas</option>
+            <option value="unlinked">Sem vínculo no mural</option>
+          </select>
+        </label>
+        <label for="source-queue-search">Pesquisar na fila
+          <input id="source-queue-search" type="search" placeholder="Título, URL, resumo ou erro…" autocomplete="off">
+        </label>
+      </div>
       <ul id="source-queue-list" class="source-queue-list"></ul>
     </section>
 

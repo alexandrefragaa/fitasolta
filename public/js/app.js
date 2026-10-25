@@ -46,6 +46,8 @@
     sourceIntakeStatus: $("#source-intake-status"),
     sourceQueueStatus: $("#source-queue-status"),
     sourceQueueSearch: $("#source-queue-search"),
+    sourceQueueStatusFilter: $("#source-queue-status-filter"),
+    sourceQueueCounts: $("#source-queue-counts"),
     sourceQueueList: $("#source-queue-list"),
     refreshSourceQueue: $("#refresh-source-queue"),
     processSourceQueue: $("#process-source-queue"),
@@ -608,16 +610,78 @@
     return labels[status] || "Desconhecido";
   }
 
+  function normalizeQueueSourceUrl(value) {
+    const safeUrl = safeHttpUrl(String(value || ""));
+    if (!safeUrl) return "";
+    try {
+      const url = new URL(safeUrl);
+      url.hash = "";
+      for (const key of [...url.searchParams.keys()]) {
+        if (/^(utm_|fbclid|gclid|ref$)/i.test(key)) url.searchParams.delete(key);
+      }
+      return url.href.replace(/\/$/, "").toLowerCase();
+    } catch {
+      return "";
+    }
+  }
+
+  function sourceQueueDuplicateKeys(sources) {
+    const counts = new Map();
+    for (const source of sources) {
+      const key = normalizeQueueSourceUrl(source.original_url || source.url || source.media_url);
+      if (key) counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key));
+  }
+
+  function renderSourceQueueCounts(duplicateKeys) {
+    if (!elements.sourceQueueCounts) return;
+    const counts = { pending: 0, processing: 0, completed: 0, error: 0 };
+    for (const source of state.sourceQueue) {
+      if (Object.prototype.hasOwnProperty.call(counts, source.status)) counts[source.status] += 1;
+    }
+    const isDuplicate = (source) => {
+      const key = normalizeQueueSourceUrl(source.original_url || source.url || source.media_url);
+      return Boolean(key && duplicateKeys.has(key));
+    };
+    const duplicateCount = state.sourceQueue.filter(isDuplicate).length;
+    const unlinkedCount = state.sourceQueue.filter((source) => source.linked_to_mural !== true).length;
+    const items = [
+      ["Pendentes", counts.pending],
+      ["Em processamento", counts.processing],
+      ["Concluídas", counts.completed],
+      ["Com erro", counts.error],
+      ["Registros em URLs duplicadas", duplicateCount],
+      ["Sem vínculo no mural", unlinkedCount]
+    ];
+    elements.sourceQueueCounts.replaceChildren(
+      ...items.map(([label, count]) => createElement("span", "queue-count", label + ": " + count))
+    );
+  }
+
   function renderSourceQueue() {
     if (!elements.sourceQueueList) return;
 
     const term = (elements.sourceQueueSearch?.value || "")
       .trim()
       .toLocaleLowerCase("pt-BR");
+    const statusFilter = elements.sourceQueueStatusFilter?.value || "all";
+    const duplicateKeys = sourceQueueDuplicateKeys(state.sourceQueue);
+    renderSourceQueueCounts(duplicateKeys);
+
     const sources = state.sourceQueue.filter((source) => {
-      if (!term) return true;
-      return [source.title, source.url, source.summary, source.status, source.error_message]
-        .some((value) => String(value || "").toLocaleLowerCase("pt-BR").includes(term));
+      const key = normalizeQueueSourceUrl(source.original_url || source.url || source.media_url);
+      const isDuplicate = Boolean(key && duplicateKeys.has(key));
+      const isUnlinked = source.linked_to_mural !== true;
+      const matchesFilter =
+        statusFilter === "all" ||
+        (statusFilter === "duplicates" && isDuplicate) ||
+        (statusFilter === "unlinked" && isUnlinked) ||
+        (["pending", "processing", "completed", "error"].includes(statusFilter) && source.status === statusFilter);
+      const matchesTerm = !term ||
+        [source.title, source.url, source.original_url, source.media_url, source.summary, source.status, source.error_message]
+          .some((value) => String(value || "").toLocaleLowerCase("pt-BR").includes(term));
+      return matchesFilter && matchesTerm;
     });
 
     elements.sourceQueueList.replaceChildren();
@@ -625,7 +689,9 @@
     if (sources.length === 0) {
       elements.sourceQueueList.appendChild(
         createMessage(
-          term ? "Nenhuma fonte corresponde ao filtro." : "Nenhuma fonte disponível na fila do Turso."
+          term || statusFilter !== "all"
+            ? "Nenhuma fonte corresponde aos filtros selecionados."
+            : "Nenhuma fonte disponível na fila do Turso."
         )
       );
       return;
@@ -646,23 +712,30 @@
       header.append(title, status);
       item.appendChild(header);
 
+      const key = normalizeQueueSourceUrl(source.original_url || source.url || source.media_url);
+      if (key && duplicateKeys.has(key)) {
+        item.appendChild(createElement("p", "source-queue-flag source-queue-flag-warning", "URL duplicada na fila — revisar antes de processar."));
+      }
+      if (source.linked_to_mural === true) {
+        item.appendChild(createElement("p", "source-queue-flag", "Fonte vinculada a entidade ou relação do mural."));
+      } else {
+        item.appendChild(createElement("p", "source-queue-flag source-queue-flag-warning", "Sem vínculo com entidade ou relação do mural."));
+      }
+
       if (source.summary) {
         item.appendChild(createElement("p", "source-queue-summary", source.summary));
       }
-
       if (source.error_message) {
         item.appendChild(createElement("p", "source-queue-error", `Observação: ${source.error_message}`));
       }
 
       const footer = createElement("div", "source-queue-item-footer");
-      const date = createElement("span", "muted", `Atualizada: ${formatDate(source.updated_at || source.created_at)}`);
-      footer.appendChild(date);
-      appendSourceLink(footer, source.url, "Abrir fonte");
+      footer.appendChild(createElement("span", "muted", `Atualizada: ${formatDate(source.updated_at || source.created_at)}`));
+      appendSourceLink(footer, source.url || source.original_url || source.media_url, "Abrir fonte");
       item.appendChild(footer);
       elements.sourceQueueList.appendChild(item);
     }
   }
-
 
 
   async function handleSourceIntake(event) {
@@ -839,14 +912,12 @@
         (!term || searchText.includes(term)) && (!categoryFilter || category === categoryFilter);
     });
 
-    const lastUpdated = state.publicSourceStats?.lastUpdated;
     if (elements.boardSummary) {
       if (state.publicSourceStats?.queueAvailable === false) {
         elements.boardSummary.textContent = "Arquivo indisponível. A conexão com a base de registros falhou.";
       } else {
         const parts = [visible.length + (visible.length === 1 ? " registro" : " registros")];
         if (term || categoryFilter || personFilter || verdictFilter || mode !== "all") parts.push("filtros aplicados");
-        if (lastUpdated) parts.push("atualizado em " + formatDate(lastUpdated));
         elements.boardSummary.textContent = parts.join(" · ");
       }
     }
@@ -872,15 +943,14 @@
       const claim = ficha.claim || null;
       const fact = claim?.fact_check || null;
       const sourceUrl = source.url || source.original_url || "";
-      const candidateId = String(ficha.video_id || youtubeId(source.media_url || ficha.media_url || sourceUrl) || "");
-      const videoId = /^[A-Za-z0-9_-]{11}$/.test(candidateId) ? candidateId : "";
+      const videoSourceUrl = ficha.video_source_url || [source.media_url, source.original_url, source.url, ficha.media_url]
+        .find((value) => youtubeId(value)) || "";
+      const candidateId = String(ficha.video_id || "");
+      const videoId = /^[A-Za-z0-9_-]{11}$/.test(candidateId) ? candidateId : youtubeId(videoSourceUrl);
       const imageUrl = String(ficha.image_url || (source.media_type === "image" ? source.media_url : ""));
       const card = createElement("article", "public-source-card" + (videoId ? " has-video" : ""));
       const metadata = createElement("p", "source-card-meta");
-      metadata.append(
-        createElement("span", "", source.category || details.category || "Outros"),
-        createElement("span", "", source.status === "completed" ? " · Processada" : " · Referência")
-      );
+      metadata.append(createElement("span", "", source.category || details.category || "Outros"));
       card.append(metadata, createElement("h3", "source-card-title", source.title || "Fonte sem título"));
 
       if (videoId) {
@@ -957,7 +1027,7 @@
             grid.appendChild(section);
           }
           evidence.appendChild(grid);
-          if (fact.verified_at) evidence.appendChild(createElement("p", "muted", "Pesquisa executada em " + formatDate(fact.verified_at) + ". Resultado automático, sujeito a revisão."));
+          evidence.appendChild(createElement("p", "muted", "Resultado automático, sujeito a revisão editorial. Consulte as fontes originais antes de concluir."));
           claimBox.appendChild(evidence);
         } else {
           claimBox.appendChild(createElement("p", "fact-verdict verdict-nao_verificada", claim.verifiable ? "Estado da checagem: não verificada" : "Classificação: não é uma afirmação factual verificável"));
@@ -1006,11 +1076,9 @@
       card.appendChild(extra);
 
       const footer = createElement("div", "source-card-footer");
-      const updatedAt = source.updated_at || source.created_at;
-      if (updatedAt) footer.appendChild(createElement("span", "muted", "Processado em " + formatDate(updatedAt)));
       if (sourceUrl) appendSourceLink(footer, sourceUrl, "Abrir fonte original");
-      if (ficha.video_source_url) appendSourceLink(footer, ficha.video_source_url, "Abrir vídeo original");
-      if (!sourceUrl && !ficha.video_source_url) footer.appendChild(createElement("span", "muted", "Texto fornecido sem URL original"));
+      if (videoSourceUrl && videoSourceUrl !== sourceUrl) appendSourceLink(footer, videoSourceUrl, "Abrir vídeo original");
+      if (!sourceUrl && !videoSourceUrl) footer.appendChild(createElement("span", "muted", "Texto fornecido sem URL original"));
       card.appendChild(footer);
       elements.publicSourceList.appendChild(card);
     }
@@ -1785,6 +1853,7 @@
     elements.processSourceQueue?.addEventListener("click", () => processSourceQueue());
     elements.retrySourceErrors?.addEventListener("click", () => processSourceQueue({ retryErrors: true }));
     elements.sourceQueueSearch?.addEventListener("input", renderSourceQueue);
+    elements.sourceQueueStatusFilter?.addEventListener("change", renderSourceQueue);
 
     elements.searchButton?.addEventListener("click", () => { applySearch(); renderPublicSources(); });
 

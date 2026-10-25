@@ -27,6 +27,20 @@ test("video caption parsing and evidence grounding exist",()=>{
  assert.ok(server.includes("fetchYouTubeTranscriptFromHtml"));assert.ok(server.includes("fetchYouTubeTranscriptById"));assert.ok(server.includes("FICHA_AUTO_JSON:"));assert.ok(server.includes('tools: [{ google_search: {} }]'));
  assert.ok(server.includes('verdict = "inconclusiva"'));assert.ok(server.includes("verificationBudget={remaining:Math.min(3,sources.length)}"));assert.ok(app.includes("youtube-nocookie.com/embed/"));assert.ok(app.includes("Fontes que contradizem ou limitam"));assert.ok(app.includes("sourcePersonFilter"));assert.ok(app.includes("sourceVerdictFilter"));assert.ok(app.includes("Nenhuma fonte de apoio foi vinculada"));assert.ok(app.includes("não conseguiu vincular uma fonte que contradiga"));
 });
+test("public archive hides processing metadata and keeps YouTube source fallbacks",()=>{
+ assert.ok(!app.includes('" · Processada"'));
+ assert.ok(!app.includes('"Processado em "'));
+ assert.ok(!app.includes('"Pesquisa executada em "'));
+ assert.ok(app.includes("source.media_url, source.original_url, source.url"));
+ assert.ok(app.includes("Abrir vídeo original"));
+});
+test("admin queue supports status, duplicate and mural-link triage",()=>{
+ assert.ok(admin.includes('id="source-queue-status-filter"'));
+ assert.ok(admin.includes('id="source-queue-counts"'));
+ assert.ok(app.includes("sourceQueueDuplicateKeys"));
+ assert.ok(app.includes("Sem vínculo no mural"));
+ assert.ok(server.includes("linked_to_mural: linkedSourceKeys.has"));
+});
 test("daily automation remains protected",()=>{
  assert.equal(cron.crons[0].path,"/api/cron/process-sources");assert.equal(cron.crons[0].schedule,"0 12 * * *");
  assert.ok(server.includes("discoverDailySources(queue)"));assert.ok(server.includes("legacyCompleted.slice(0,legacyCapacity)"));assert.ok(server.includes("FICHA_AUTO_JSON:"));assert.ok(server.includes('req.get("authorization")!=="Bearer "+CRON_SECRET'));
