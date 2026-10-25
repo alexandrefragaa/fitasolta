@@ -43,3 +43,30 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Verify production APIs and real data
+        run: |
+          node --input-type=module <<'NODE'
+          const base = "https://fitasolta.vercel.app";
+          const checks = [
+            ["/api/health", (data) => data?.ok === true && data?.database === "connected"],
+            ["/api/entities", (data) => Array.isArray(data?.entities)],
+            ["/api/relationships", (data) => Array.isArray(data?.relationships)],
+            ["/api/sources", (data) => Array.isArray(data?.sources) && data?.stats && typeof data.stats.entities === "number" && typeof data.stats.connections === "number"]
+          ];
+          const results = {};
+          for (const [path, validate] of checks) {
+            const response = await fetch(base + path, { signal: AbortSignal.timeout(20000), headers: { "accept": "application/json" } });
+            if (!response.ok) throw new Error(`Production ${path} returned HTTP ${response.status}`);
+            const data = await response.json();
+            if (!validate(data)) throw new Error(`Production ${path} returned an unexpected payload or the database is unavailable`);
+            results[path] = data;
+          }
+          const counts = {
+            entities: results["/api/entities"].entities.length,
+            relationships: results["/api/relationships"].relationships.length,
+            publicSources: results["/api/sources"].sources.length,
+            sourceStats: results["/api/sources"].stats
+          };
+          console.log("Production APIs respond successfully. Public record counts:", JSON.stringify(counts));
+          NODE
