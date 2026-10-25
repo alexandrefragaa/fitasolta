@@ -1848,7 +1848,7 @@ app.post("/api/admin/investigate-link", requireCsrf, requireAdmin, asyncHandler(
 /* Entidades */
 const selectEntities = db.prepare(`
   SELECT id, name, type, description, source_url, source_date, evidence_status, photo_url, created_at, updated_at
-  FROM entities ORDER BY created_at DESC LIMIT 500
+  FROM entities ORDER BY created_at DESC LIMIT 2000
 `);
 const insertEntity = db.prepare(`
   INSERT INTO entities (id, name, type, description, source_url, source_date, evidence_status, photo_url)

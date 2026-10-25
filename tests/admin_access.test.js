@@ -34,6 +34,7 @@ test("queue stores raw text and media but public response hides raw text",()=>{
 test("automatic mural hydration fixes entity insert arity and runs from public APIs",()=>{
  assert.ok(server.includes('await insertEntity.run(id,n,type,cleanString(description||"",{max:4500})||"",url||"",isIsoDate(date||"")?date:"","nao_verificado","")'));
  assert.ok(server.includes("async function ensurePublicMuralHydrated()"));
+ assert.ok(server.includes("FROM entities ORDER BY created_at DESC LIMIT 2000"));
  assert.ok(server.includes("const batchLimit = 5"));
  assert.ok(server.includes("result.scanned >= batchLimit"));
  assert.equal((server.match(/await ensurePublicMuralHydrated\(\);/g)||[]).length,1);
