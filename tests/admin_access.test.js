@@ -59,7 +59,7 @@ test("daily automation remains protected",()=>{
  assert.ok(server.includes("discoverDailySources(queue)"));assert.ok(server.includes("legacyCompleted.slice(0,legacyCapacity)"));assert.ok(server.includes("FICHA_AUTO_JSON:"));assert.ok(server.includes('req.get("authorization")!=="Bearer "+CRON_SECRET'));
  assert.ok(server.includes("CREATE TABLE IF NOT EXISTS source_connection_sync"));
  assert.ok(server.includes("!synced.has(sourceUrl)"));
- assert.ok(server.includes("ORDER BY created_at DESC LIMIT \" + Math.max(1, Math.min(2000"));
+ assert.ok(server.includes("Math.min(2000, Number.parseInt(limit, 10) || 200)"));
  assert.ok(server.includes("readTursoSourceQueue(1000)"));
 });
 test("voting endpoints are disabled without deleting stored records",()=>{assert.ok(server.includes('app.all("/api/topic-votes"'));assert.ok(server.includes(".status(410)"))});
