@@ -794,7 +794,20 @@ async function discoverDailySources(queue){
  const legacyBacklog=queue.some((s)=>s.status==="completed"&&!String(s.summary||"").includes("FICHA_AUTO_JSON:")&&(s.url||s.original_url||s.raw_text||s.media_url)&&!/^backfill_failed:/i.test(String(s.error_message||"")));
  const limit=legacyBacklog?1:(pending>=3?1:Math.max(1,3-pending));
  const seen=new Set(queue.map((s)=>sourceIdentityKey(s.original_url||s.url)).filter(Boolean));const feeds=await Promise.all(AUTOMATIC_SOURCE_FEEDS.map(async(f)=>{try{const r=await fetch(f.url,{headers:{"User-Agent":"FitaSoltaBot/1.0 (+https://fitasolta.vercel.app)",Accept:"application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5"},signal:AbortSignal.timeout(12000)});if(!r.ok)throw new Error("HTTP "+r.status);return parseRssFeed((await r.text()).slice(0,1500000),f.name)}catch(e){console.warn("Feed indisponível:",f.name,e?.name||"Error");return[]}}));const candidates=feeds.flat().sort((a,b)=>b.publishedMs-a.publishedMs),added=[];for(const item of candidates){const key=sourceIdentityKey(item.url);if(!key||seen.has(key))continue;try{await insertTursoSourceFromFeed(item);seen.add(key);added.push({title:item.title,feed:item.feed});if(added.length>=limit)break}catch(e){console.warn("Falha ao importar feed:",e?.name||"Error")}}return added}
-async function ensureGeneratedEntity(name,type,description,url,date,isDoc=false){const n=cleanString(name,{min:2,max:200,required:true});if(!n)return null;if(isDoc&&url){const x=await db.prepare("SELECT id FROM entities WHERE source_url=? LIMIT 1").get(url);if(x?.id)return x.id}const old=await db.prepare("SELECT id FROM entities WHERE lower(name)=lower(?) AND type=? LIMIT 1").get(n,type);if(old?.id)return old.id;const id=crypto.randomUUID();await insertEntity.run(id,n,type,cleanString(description||"",{max:4500})||"",url||"",isIsoDate(date||"")?date:"","nao_verificado");return id}
+async function ensureGeneratedEntity(name,type,description,url,date,isDoc=false){
+ const n=cleanString(name,{min:2,max:200,required:true});
+ if(!n)return null;
+ if(isDoc&&url){
+  const x=await db.prepare("SELECT id FROM entities WHERE source_url=? LIMIT 1").get(url);
+  if(x?.id)return x.id;
+ }
+ const old=await db.prepare("SELECT id FROM entities WHERE lower(name)=lower(?) AND type=? LIMIT 1").get(n,type);
+ if(old?.id)return old.id;
+ const id=crypto.randomUUID();
+ // A tabela entities tem oito colunas; informar photo_url evita LibsqlError por bind incompleto.
+ await insertEntity.run(id,n,type,cleanString(description||"",{max:4500})||"",url||"",isIsoDate(date||"")?date:"","nao_verificado","");
+ return id;
+}
 async function persistSourceConnections(source,r){const date=isIsoDate(r.event_date||"")?r.event_date:"",doc=await ensureGeneratedEntity(r.title,"document","Fonte extraída automaticamente. "+formatStructuredSourceSummary(r),source.url,date,true);if(!doc)return;const names=[...r.people.map((name)=>({name,type:"person"})),...r.organizations.map((name)=>({name,type:"institution"})),...r.cases.map((name)=>({name,type:"process"}))];for(const entry of names){if(!entry.name||entry.name.toLowerCase()===r.title.toLowerCase())continue;const sourceContext="Citada em: "+String(r.title||"Fonte pública")+". "+(r.summary?"Contexto informado pela fonte: "+r.summary+" ":"")+(r.legal_status?"Andamento jurídico mencionado: "+r.legal_status+" ":"")+"A menção registra contexto documental e não implica culpa, participação criminosa ou relação pessoal comprovada." ;const id=await ensureGeneratedEntity(entry.name,entry.type,"Menção detectada automaticamente em fonte pública; não implica culpa ou comprovação independente.","",date);if(!id||id===doc)continue;const existingEntity=await db.prepare("SELECT description FROM entities WHERE id=? LIMIT 1").get(id);const currentDescription=String(existingEntity?.description||"");if(!currentDescription.toLocaleLowerCase("pt-BR").includes(String(r.title||"").toLocaleLowerCase("pt-BR"))){const updatedDescription=[currentDescription,sourceContext].filter(Boolean).join("\n\n").slice(0,4500);await db.prepare("UPDATE entities SET description=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(updatedDescription,id)}const found=await db.prepare("SELECT id FROM relationships WHERE source_id=? AND target_id=? AND source_url=? LIMIT 1").get(id,doc,source.url);if(found?.id)continue;await db.prepare("INSERT INTO relationships (id,source_id,target_id,label,relation_type,description,source_url,source_date,evidence_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(crypto.randomUUID(),id,doc,"mencionado em","referencia_documentada","O termo aparece na fonte. A ligação registra menção, não responsabilidade nem culpa.",source.url,date,"documentado")}}
 
 function parseStoredSourceReview(source) {
@@ -911,6 +924,34 @@ async function rebuildStoredSourceConnections(queue, limit = 200) {
     }
   }
   return { scanned, rebuilt, skipped, errors };
+}
+
+// Sincroniza o mural por demanda pública, sem clique ou sessão administrativa.
+let publicMuralSyncPromise = null;
+let publicMuralSyncNextAttemptAt = 0;
+async function ensurePublicMuralHydrated() {
+  if (publicMuralSyncPromise) return publicMuralSyncPromise;
+  if (Date.now() < publicMuralSyncNextAttemptAt) {
+    return { scanned: 0, rebuilt: 0, skipped: 0, errors: 0, cooldown: true };
+  }
+  publicMuralSyncPromise = (async () => {
+    try {
+      const queue = await readTursoSourceQueue(1000, true);
+      const result = await rebuildStoredSourceConnections(queue, 200);
+      publicMuralSyncNextAttemptAt = Date.now() + (result.errors ? 60_000 : 5 * 60_000);
+      if (result.rebuilt > 0 || result.errors > 0) {
+        console.log("Hidratação automática do mural:", JSON.stringify(result));
+      }
+      return result;
+    } catch (error) {
+      publicMuralSyncNextAttemptAt = Date.now() + 60_000;
+      console.warn("Hidratação automática do mural falhou:", error?.code || error?.name || "Error", String(error?.message || "").slice(0, 180));
+      return { scanned: 0, rebuilt: 0, skipped: 0, errors: 1 };
+    }
+  })().finally(() => {
+    publicMuralSyncPromise = null;
+  });
+  return publicMuralSyncPromise;
 }
 
 function isAllowedSourceUrl(value) {
@@ -1831,6 +1872,7 @@ function parseEntity(body) {
 
 app.get("/api/entities", asyncHandler(async (req, res) => {
   try {
+    await ensurePublicMuralHydrated();
     const entities = await selectEntities.all();
     res.set("Cache-Control", "no-store").json({ entities });
   } catch (error) {
@@ -1895,6 +1937,7 @@ function parseRelationship(body) {
 
 app.get("/api/relationships", asyncHandler(async (req, res) => {
   try {
+    await ensurePublicMuralHydrated();
     const relationships = await selectRelationships.all();
     res.set("Cache-Control", "no-store").json({ relationships });
   } catch (error) {
@@ -1944,8 +1987,9 @@ app.delete("/api/relationships/:id", requireCsrf, requireAdmin, asyncHandler(asy
 
 /* Fontes externas: URLs distintas referenciadas por entidades e relações. */
 app.get("/api/sources", asyncHandler(async (req,res)=>{
- try{
-  const [queue,registered,entityCount,relationCount]=await Promise.all([
+  try{
+   await ensurePublicMuralHydrated();
+   const [queue,registered,entityCount,relationCount]=await Promise.all([
    readTursoSourceQueue(),
    db.prepare("SELECT source_url AS url,MAX(name) AS title,MAX(description) AS description,COUNT(*) AS reference_count FROM (SELECT source_url,name,description FROM entities WHERE source_url<>'' UNION ALL SELECT source_url,label AS name,description FROM relationships WHERE source_url<>'') GROUP BY source_url ORDER BY url ASC LIMIT 500").all(),
    db.prepare("SELECT COUNT(*) AS total FROM entities").get(),

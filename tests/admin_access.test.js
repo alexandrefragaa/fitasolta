@@ -31,6 +31,11 @@ test("queue stores raw text and media but public response hides raw text",()=>{
  const a=server.indexOf('app.get("/api/sources"'),b=server.indexOf("/* Fontes externas são registradas",a),route=server.slice(a,b);
  assert.ok(route.includes('summary:item.summary||""'));assert.ok(!route.includes("raw_text:"));
 });
+test("automatic mural hydration fixes entity insert arity and runs from public APIs",()=>{
+ assert.ok(server.includes('await insertEntity.run(id,n,type,cleanString(description||"",{max:4500})||"",url||"",isIsoDate(date||"")?date:"","nao_verificado","")'));
+ assert.ok(server.includes("async function ensurePublicMuralHydrated()"));
+ assert.equal((server.match(/await ensurePublicMuralHydrated\(\);/g)||[]).length,3);
+});
 test("stored source connections rebuild from both JSON and readable source summaries",()=>{
  assert.ok(server.includes("function parseStoredSourceReview(source)"));
  assert.ok(server.includes('read("Pessoas citadas")'));
@@ -75,4 +80,7 @@ test("daily automation remains protected",()=>{
  assert.ok(server.includes("discoverDailySources(queue)"));assert.ok(server.includes("legacyCompleted.slice(0,legacyCapacity)"));assert.ok(server.includes("FICHA_AUTO_JSON:"));assert.ok(server.includes('req.get("authorization")!=="Bearer "+CRON_SECRET'));
 });
 test("voting endpoints are disabled without deleting stored records",()=>{assert.ok(server.includes('app.all("/api/topic-votes"'));assert.ok(server.includes(".status(410)"))});
-test("browser JavaScript syntax",()=>assert.doesNotThrow(()=>new Script(app)));
+test("browser JavaScript syntax",()=>{
+ assert.doesNotThrow(()=>new Script(app));
+ assert.doesNotThrow(()=>new Script(read("../public/js/mural.js")));
+});
