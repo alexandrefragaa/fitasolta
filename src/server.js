@@ -154,6 +154,11 @@ async function initializeDatabase() {
       media_url TEXT NOT NULL DEFAULT '',
       media_type TEXT NOT NULL DEFAULT 'link'
     );
+    CREATE TABLE IF NOT EXISTS source_connection_sync (
+      source_url TEXT PRIMARY KEY,
+      synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      result_json TEXT NOT NULL DEFAULT '{}'
+    );
   `);
 
   await db.exec(`
@@ -423,7 +428,7 @@ function sanitizeTursoSourceUrl(value) {
   }
 }
 
-async function readTursoSourceQueue() {
+async function readTursoSourceQueue(limit = 200) {
   const endpoint = `${getTursoSourcesBaseUrl()}/v2/pipeline`;
   const response = await fetch(endpoint, {
     method: "POST",
@@ -437,7 +442,7 @@ async function readTursoSourceQueue() {
         {
           type: "execute",
           stmt: {
-            sql: "SELECT id, url, status, title, summary, error_message, created_at, updated_at, raw_text, original_url, media_url, media_type FROM source_queue ORDER BY created_at DESC LIMIT 200"
+            sql: "SELECT id, url, status, title, summary, error_message, created_at, updated_at, raw_text, original_url, media_url, media_type FROM source_queue ORDER BY created_at DESC LIMIT " + Math.max(1, Math.min(2000, Number.parseInt(limit, 10) || 200))
           }
         },
         { type: "close" }
@@ -794,13 +799,24 @@ async function persistSourceConnections(source,r){const date=isIsoDate(r.event_d
 
 async function rebuildStoredSourceConnections(queue, limit = 30) {
   let scanned = 0, rebuilt = 0, skipped = 0, errors = 0;
-  const candidates = queue.filter((source) =>
-    source.status === "completed" &&
-    String(source.summary || "").includes("FICHA_AUTO_JSON:") &&
-    !/^backfill_failed:/i.test(String(source.error_message || ""))
-  ).slice(0, limit);
+  // Só considera itens ainda não sincronizados. Assim cada execução diária
+  // avança para as próximas fontes, em vez de repetir eternamente as mesmas 30.
+  const syncedRows = await db.prepare("SELECT source_url FROM source_connection_sync").all();
+  const synced = new Set(syncedRows.map((row) => String(row.source_url || "")));
+  const candidates = queue.filter((source) => {
+    const sourceUrl = String(source.original_url || source.url || "").trim();
+    return source.status === "completed" &&
+      sourceUrl &&
+      !synced.has(sourceUrl) &&
+      String(source.summary || "").includes("FICHA_AUTO_JSON:") &&
+      !/^backfill_failed:/i.test(String(source.error_message || ""));
+  }).sort((a, b) =>
+    (Date.parse(String(a.created_at || "")) || 0) -
+    (Date.parse(String(b.created_at || "")) || 0)
+  ).slice(0, Math.max(1, Math.min(100, Number.parseInt(limit, 10) || 30)));
   for (const source of candidates) {
     scanned++;
+    const sourceUrl = String(source.original_url || source.url || "").trim();
     try {
       const raw = String(source.summary).split("FICHA_AUTO_JSON:").slice(1).join("FICHA_AUTO_JSON:").trim();
       const review = parseModelJson(raw);
@@ -808,7 +824,9 @@ async function rebuildStoredSourceConnections(queue, limit = 30) {
         skipped++;
         continue;
       }
-      await persistSourceConnections(Object.assign({}, source, { url: source.original_url || source.url }), review);
+      await persistSourceConnections(Object.assign({}, source, { url: sourceUrl }), review);
+      await db.prepare("INSERT OR REPLACE INTO source_connection_sync (source_url, synced_at, result_json) VALUES (?, CURRENT_TIMESTAMP, ?)")
+        .run(sourceUrl, JSON.stringify({ entities: review.people.length + review.organizations.length + review.cases.length }));
       rebuilt++;
     } catch (error) {
       errors++;
@@ -1330,7 +1348,7 @@ app.post("/api/admin/process-sources", processSourcesLimiter, requireCsrf, requi
 app.get("/api/cron/process-sources",async(req,res)=>{
  if(!CRON_SECRET||req.get("authorization")!=="Bearer "+CRON_SECRET)return res.status(401).json({error:"Não autorizado."});
  if(!GEMINI_API_KEY.trim())return res.status(503).json({error:"GEMINI_API_KEY não está configurada."});
- let queue;try{queue=await readTursoSourceQueue()}catch(e){console.error("Cron Turso:",e?.code||e?.name||"Error");return res.status(502).json({error:"Não foi possível consultar a fila."})}
+ let queue;try{queue=await readTursoSourceQueue(1000)}catch(e){console.error("Cron Turso:",e?.code||e?.name||"Error");return res.status(502).json({error:"Não foi possível consultar a fila."})}
  let connectionSync={scanned:0,rebuilt:0,skipped:0,errors:0};
  try{connectionSync=await rebuildStoredSourceConnections(queue,30)}catch(e){console.warn("Sincronização automática de conexões falhou:",e?.name||"Error")}
  let discovered=[];try{discovered=await discoverDailySources(queue);if(discovered.length)queue=await readTursoSourceQueue()}catch(e){console.warn("Descoberta diária falhou:",e?.name||"Error")}
