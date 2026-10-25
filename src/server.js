@@ -757,7 +757,17 @@ const AUTOMATIC_SOURCE_FEEDS=[
  {name:"Agência Câmara",url:"https://www.camara.leg.br/noticias/rss/ultimas-noticias"}
 ];
 const AUTOMATIC_SOURCE_HOSTS=["agenciabrasil.ebc.com.br","senado.leg.br","camara.leg.br","gov.br","stf.jus.br"];
-function sourceIdentityKey(raw){const safe=sanitizeTursoSourceUrl(raw);if(!safe)return"";try{const u=new URL(safe);u.hash="";for(const k of [...u.searchParams.keys()])if(/^(utm_|fbclid|gclid|ref$)/i.test(k))u.searchParams.delete(k);return u.href.replace(/\/$/,"").toLowerCase()}catch{return""}}
+function sourceIdentityKey(raw){
+ const safe=sanitizeTursoSourceUrl(raw);if(!safe)return"";
+ try{
+  const u=new URL(safe),host=u.hostname.toLowerCase().replace(/^www\./,"");let videoId="";
+  if(host==="youtu.be")videoId=u.pathname.split("/").filter(Boolean)[0]||"";
+  else if(["youtube.com","m.youtube.com","music.youtube.com","youtube-nocookie.com"].includes(host))videoId=u.searchParams.get("v")||(u.pathname.match(/^\/(?:embed|shorts|live)\/([A-Za-z0-9_-]{11})(?:\/|$)/)||[])[1]||"";
+  if(/^[A-Za-z0-9_-]{11}$/.test(videoId))return"youtube:"+videoId;
+  u.hash="";for(const k of [...u.searchParams.keys()])if(/^(utm_|fbclid|gclid|ref$)/i.test(k))u.searchParams.delete(k);
+  return u.href.replace(/\/$/,"").toLowerCase()
+ }catch{return""}
+}
 function decodeFeedText(v){return String(v||"").replace(/^<!\[CDATA\[/i,"").replace(/\]\]>$/i,"").replace(/<[^>]+>/g," ").replace(/&nbsp;/gi," ").replace(/&amp;/gi,"&").replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'").replace(/&lt;/gi,"<").replace(/&gt;/gi,">").replace(/&#(\d+);/g,(_,c)=>String.fromCharCode(Number(c))).replace(/\s+/g," ").trim()}
 function readFeedTag(b,t){const m=b.match(new RegExp("<"+t+"(?:\\s[^>]*)?>([\\s\\S]*?)<\\/"+t+">","i"));return decodeFeedText(m?.[1]||"")}
 function parseRssFeed(xml,feed){return [...String(xml||"").matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)].slice(0,25).map((m)=>{const item=m[1],title=readFeedTag(item,"title"),url=sanitizeTursoSourceUrl(readFeedTag(item,"link")),when=Date.parse(readFeedTag(item,"pubDate")||readFeedTag(item,"dc:date"));if(!title||!url)return null;let host="";try{host=new URL(url).hostname.toLowerCase()}catch{return null}if(!AUTOMATIC_SOURCE_HOSTS.some((d)=>host===d||host.endsWith("."+d)))return null;return{title:cleanString(title,{max:250})||title.slice(0,250),url,feed,publishedMs:Number.isFinite(when)?when:0}}).filter(Boolean)}
