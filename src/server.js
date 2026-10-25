@@ -104,6 +104,7 @@ async function initializeDatabase() {
       source_url TEXT NOT NULL DEFAULT '',
       source_date TEXT NOT NULL DEFAULT '',
       evidence_status TEXT NOT NULL DEFAULT 'nao_verificado',
+      photo_url TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -304,6 +305,7 @@ async function initializeDatabase() {
       source_url: "TEXT NOT NULL DEFAULT ''",
       source_date: "TEXT NOT NULL DEFAULT ''",
       evidence_status: "TEXT NOT NULL DEFAULT 'nao_verificado'",
+      photo_url: "TEXT NOT NULL DEFAULT ''",
       created_at: "TEXT",
       updated_at: "TEXT"
     },
@@ -1516,9 +1518,9 @@ app.post("/api/admin/investigate-link", requireCsrf, requireAdmin, asyncHandler(
       continue;
     }
     const id = crypto.randomUUID();
-    await insertEntity.run(id, name, type, description, sourceUrl, sourceDate, evidenceStatus);
+    await insertEntity.run(id, name, type, description, sourceUrl, sourceDate, evidenceStatus, "");
     idByName.set(key, id);
-    savedEntities.push({ id, name, type, description, source_url: sourceUrl, source_date: sourceDate, evidence_status: evidenceStatus });
+    savedEntities.push({ id, name, type, description, source_url: sourceUrl, source_date: sourceDate, evidence_status: evidenceStatus, photo_url: "" });
   }
 
   let savedRelationships = 0;
@@ -1556,15 +1558,15 @@ app.post("/api/admin/investigate-link", requireCsrf, requireAdmin, asyncHandler(
 
 /* Entidades */
 const selectEntities = db.prepare(`
-  SELECT id, name, type, description, source_url, source_date, evidence_status, created_at, updated_at
+  SELECT id, name, type, description, source_url, source_date, evidence_status, photo_url, created_at, updated_at
   FROM entities ORDER BY created_at DESC LIMIT 500
 `);
 const insertEntity = db.prepare(`
-  INSERT INTO entities (id, name, type, description, source_url, source_date, evidence_status)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO entities (id, name, type, description, source_url, source_date, evidence_status, photo_url)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `);
 const updateEntity = db.prepare(`
-  UPDATE entities SET name = ?, type = ?, description = ?, source_url = ?, source_date = ?, evidence_status = ?, updated_at = CURRENT_TIMESTAMP
+  UPDATE entities SET name = ?, type = ?, description = ?, source_url = ?, source_date = ?, evidence_status = ?, photo_url = ?, updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
 `);
 
@@ -1575,12 +1577,13 @@ function parseEntity(body) {
   const sourceUrl = normalizeHttpUrl(body?.source_url ?? "");
   const sourceDate = body?.source_date ?? "";
   const evidenceStatus = body?.evidence_status ?? "nao_verificado";
+  const photoUrl = normalizeHttpUrl(body?.photo_url ?? "");
 
   if (name === null || type === null || description === null) return { error: "Nome, categoria ou descrição inválidos." };
-  if (sourceUrl === null) return { error: "A fonte precisa ser uma URL HTTP ou HTTPS válida." };
+  if (sourceUrl === null || photoUrl === null) return { error: "A fonte e a foto precisam ser URLs HTTP ou HTTPS válidas." };
   if (!isIsoDate(sourceDate)) return { error: "A data da fonte precisa estar no formato AAAA-MM-DD." };
   if (!EVIDENCE_STATUSES.includes(evidenceStatus)) return { error: "Classificação de evidência inválida." };
-  return { value: { name, type, description, source_url: sourceUrl, source_date: sourceDate || "", evidence_status: evidenceStatus } };
+  return { value: { name, type, description, source_url: sourceUrl, source_date: sourceDate || "", evidence_status: evidenceStatus, photo_url: photoUrl || "" } };
 }
 
 app.get("/api/entities", asyncHandler(async (req, res) => {
@@ -1598,7 +1601,7 @@ app.post("/api/entities", requireCsrf, requireAdmin, asyncHandler(async (req, re
   if (parsed.error) return res.status(400).json({ error: parsed.error });
   const id = crypto.randomUUID();
   const entity = parsed.value;
-  await insertEntity.run(id, entity.name, entity.type, entity.description, entity.source_url, entity.source_date, entity.evidence_status);
+  await insertEntity.run(id, entity.name, entity.type, entity.description, entity.source_url, entity.source_date, entity.evidence_status, entity.photo_url);
   await audit(req, "entity_created", "entity", id);
   res.status(201).json({ ok: true, entity: { id, ...entity } });
 }));
@@ -1607,7 +1610,7 @@ app.put("/api/entities/:id", requireCsrf, requireAdmin, asyncHandler(async (req,
   const parsed = parseEntity(req.body);
   if (parsed.error) return res.status(400).json({ error: parsed.error });
   const entity = parsed.value;
-  const result = await updateEntity.run(entity.name, entity.type, entity.description, entity.source_url, entity.source_date, entity.evidence_status, req.params.id);
+  const result = await updateEntity.run(entity.name, entity.type, entity.description, entity.source_url, entity.source_date, entity.evidence_status, entity.photo_url, req.params.id);
   if (!result.changes) return res.status(404).json({ error: "Entidade não encontrada." });
   await audit(req, "entity_updated", "entity", req.params.id);
   res.json({ ok: true, entity: { id: req.params.id, ...entity } });
