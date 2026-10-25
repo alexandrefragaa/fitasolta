@@ -428,7 +428,7 @@ function sanitizeTursoSourceUrl(value) {
   }
 }
 
-async function readTursoSourceQueue(limit = 200) {
+async function readTursoSourceQueue(limit = 200, oldestFirst = false) {
   const endpoint = `${getTursoSourcesBaseUrl()}/v2/pipeline`;
   const response = await fetch(endpoint, {
     method: "POST",
@@ -442,7 +442,7 @@ async function readTursoSourceQueue(limit = 200) {
         {
           type: "execute",
           stmt: {
-            sql: "SELECT id, url, status, title, summary, error_message, created_at, updated_at, raw_text, original_url, media_url, media_type FROM source_queue ORDER BY created_at DESC LIMIT " + Math.max(1, Math.min(2000, Number.parseInt(limit, 10) || 200))
+            sql: "SELECT id, url, status, title, summary, error_message, created_at, updated_at, raw_text, original_url, media_url, media_type FROM source_queue ORDER BY created_at " + (oldestFirst ? "ASC" : "DESC") + " LIMIT " + Math.max(1, Math.min(2000, Number.parseInt(limit, 10) || 200))
           }
         },
         { type: "close" }
@@ -1348,7 +1348,7 @@ app.post("/api/admin/process-sources", processSourcesLimiter, requireCsrf, requi
 app.get("/api/cron/process-sources",async(req,res)=>{
  if(!CRON_SECRET||req.get("authorization")!=="Bearer "+CRON_SECRET)return res.status(401).json({error:"Não autorizado."});
  if(!GEMINI_API_KEY.trim())return res.status(503).json({error:"GEMINI_API_KEY não está configurada."});
- let queue;try{queue=await readTursoSourceQueue(1000)}catch(e){console.error("Cron Turso:",e?.code||e?.name||"Error");return res.status(502).json({error:"Não foi possível consultar a fila."})}
+ let queue;try{queue=await readTursoSourceQueue(1000, true)}catch(e){console.error("Cron Turso:",e?.code||e?.name||"Error");return res.status(502).json({error:"Não foi possível consultar a fila."})}
  let connectionSync={scanned:0,rebuilt:0,skipped:0,errors:0};
  try{connectionSync=await rebuildStoredSourceConnections(queue,30)}catch(e){console.warn("Sincronização automática de conexões falhou:",e?.name||"Error")}
  let discovered=[];try{discovered=await discoverDailySources(queue);if(discovered.length)queue=await readTursoSourceQueue()}catch(e){console.warn("Descoberta diária falhou:",e?.name||"Error")}
