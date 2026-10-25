@@ -15,3 +15,9 @@
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 /* Organização do arquivo: cards em grelha, sem a coluna interminável de texto. */
 .public-source-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 1.5rem;align-items:start}.public-source-card{min-width:0}.public-source-card.has-video{grid-column:span 2}.source-video-frame{width:100%}.source-preview-image{max-width:100%}.filter-row{grid-template-columns:1fr}.mode-filter{gap:.25rem 1rem}.source-mode-button{padding:.45rem .1rem}.topbar nav{flex-wrap:wrap}@media(max-width:760px){.public-source-list{grid-template-columns:1fr}.public-source-card.has-video{grid-column:auto}.filter-row{grid-template-columns:1fr}.section-heading{flex-wrap:wrap}.topbar{align-items:flex-start;flex-direction:column}.topbar nav{gap:.75rem}}
+
+/* Archive cards: stable row-by-row grid, one card per row */
+.public-source-list{display:grid;grid-template-columns:minmax(0,1fr);gap:0;align-items:stretch}
+.public-source-card,.public-source-card.has-video{grid-column:auto;width:100%;box-sizing:border-box}
+.public-source-card .source-card-title,.public-source-card .source-card-summary{max-width:100%}
+.public-source-card .source-video-frame{width:100%;max-width:900px}
