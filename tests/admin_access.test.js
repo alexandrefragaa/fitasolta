@@ -39,7 +39,7 @@ test("duplicate detection treats YouTube URL variants as the same video",()=>{
  assert.ok(server.includes('return"youtube:"+videoId'));
 });
 test("contradiction filter requires a usable source URL and videos link to the indicated timestamp",()=>{
- assert.ok(app.includes('fact?.contradictory_sources.some((item) => Boolean(safeHttpUrl(item?.url)))'));
+ assert.ok(app.includes('fact.contradictory_sources.some((item) => Boolean(safeHttpUrl(item?.url)))'));
  assert.ok(app.includes("videoTimestampUrl(videoSourceUrl, start)"));
  assert.ok(app.includes("Abrir vídeo no trecho indicado"));
 });
