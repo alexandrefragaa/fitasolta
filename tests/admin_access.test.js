@@ -8,7 +8,7 @@ test("homepage is a plain investigative archive with useful filters",()=>{
  for(const link of ['href="/votacao.html"','href="/comparar.html"','href="/debates.html"','href="/revisao.html"'])assert.ok(!home.includes(link));
  assert.ok(home.includes("Falas, documentos e evidências."));
  for(const mode of ["all","claims","media","legal"])assert.ok(home.includes('data-source-mode="'+mode+'"'));
- assert.ok(home.includes('id="source-person-filter"'));assert.ok(home.includes('id="source-category-filter"'));assert.ok(home.includes('id="source-verdict-filter"'));
+ assert.ok(home.includes('id="source-person-filter"'));assert.ok(!home.includes('id="source-category-filter"'));assert.ok(home.includes('id="source-verdict-filter"'));
  assert.ok(!home.includes("source-stats"));assert.ok(!home.includes("analytics.js"));assert.ok(home.includes('id="criterios"'));
  assert.ok(!read("../public/css/style.css").includes("@keyframes"));
 });
