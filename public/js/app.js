@@ -615,6 +615,13 @@
     if (!safeUrl) return "";
     try {
       const url = new URL(safeUrl);
+      const host = url.hostname.toLowerCase().replace(/^www\./, "");
+      let videoId = "";
+      if (host === "youtu.be") videoId = url.pathname.split("/").filter(Boolean)[0] || "";
+      else if (["youtube.com", "m.youtube.com", "music.youtube.com", "youtube-nocookie.com"].includes(host)) {
+        videoId = url.searchParams.get("v") || (url.pathname.match(/^\/(?:embed|shorts|live)\/([A-Za-z0-9_-]{11})(?:\/|$)/) || [])[1] || "";
+      }
+      if (/^[A-Za-z0-9_-]{11}$/.test(videoId)) return "youtube:" + videoId;
       url.hash = "";
       for (const key of [...url.searchParams.keys()]) {
         if (/^(utm_|fbclid|gclid|ref$)/i.test(key)) url.searchParams.delete(key);
@@ -861,6 +868,18 @@
     const n = Math.max(0, Math.floor(Number(value) || 0));
     return [Math.floor(n / 3600), Math.floor((n % 3600) / 60), n % 60].map((x) => String(x).padStart(2, "0")).join(":");
   }
+  function videoTimestampUrl(value, seconds) {
+    const safe = safeHttpUrl(value);
+    if (!safe) return "";
+    try {
+      const url = new URL(safe);
+      const host = url.hostname.toLowerCase().replace(/^www\./, "");
+      if (host === "youtu.be" || host.endsWith("youtube.com") || host === "youtube-nocookie.com") {
+        url.searchParams.set("t", String(Math.max(0, Math.floor(Number(seconds) || 0))));
+      }
+      return url.href;
+    } catch { return safe; }
+  }
   function parseSourceSummary(value) {
     const raw = String(value || "").trim(), marker = "FICHA_AUTO_JSON:", pos = raw.indexOf(marker);
     const narrative = pos >= 0 ? raw.slice(0, pos).trim() : raw;
@@ -900,7 +919,7 @@
       const isImage = Boolean(ficha.image_url || (source.media_type === "image" && source.media_url));
       const isLegal = /process|justiça|sentença|tribunal|lei|medida|governo|decisão/i.test([category, source.title, d.cases, d.legalStatus].join(" "));
       const isCaseRecord = /caso|process|inquerito|condena|absolvi|anula|crime|denuncia|acusac/i.test([source.title, d.cases, d.legalStatus, d.summary, category].join(" "));
-      const hasContradiction = Array.isArray(fact?.contradictory_sources) && fact.contradictory_sources.length > 0;
+      const hasContradiction = Array.isArray(fact?.contradictory_sources) && fact.contradictory_sources.some((item) => Boolean(safeHttpUrl(item?.url)));
       const modeMatches = mode === "all" || (mode === "claims" && Boolean(claim?.quote)) || (mode === "media" && (isVideo || isImage)) || (mode === "legal" && isLegal) || (mode === "cases" && isCaseRecord) || (mode === "contradictions" && hasContradiction);
       const searchText = normalizeInvestigativeSearch([
         source.title, source.url, source.summary, source.description, category,
@@ -1077,7 +1096,10 @@
 
       const footer = createElement("div", "source-card-footer");
       if (sourceUrl) appendSourceLink(footer, sourceUrl, "Abrir fonte original");
-      if (videoSourceUrl && videoSourceUrl !== sourceUrl) appendSourceLink(footer, videoSourceUrl, "Abrir vídeo original");
+      if (videoSourceUrl) {
+        const start = Math.max(0, Number(ficha.video_start || 0) || timestampSeconds(claim?.timestamp));
+        appendSourceLink(footer, start ? videoTimestampUrl(videoSourceUrl, start) : videoSourceUrl, start ? "Abrir vídeo no trecho indicado" : "Abrir vídeo original");
+      }
       if (!sourceUrl && !videoSourceUrl) footer.appendChild(createElement("span", "muted", "Texto fornecido sem URL original"));
       card.appendChild(footer);
       elements.publicSourceList.appendChild(card);
@@ -1766,7 +1788,8 @@
       if (!response.ok) throw new ApiError(data.error || "A revisão falhou.", response.status);
       const review = data.review;
       result.replaceChildren();
-      const heading = createElement("h4", "", `Resultado: ${({
+      result.append(createElement("p", "ai-review-notice", "SUGESTÃO DE IA · NÃO SALVA NEM PUBLICA ESTA FICHA"));
+      const heading = createElement("h4", "", `Resultado sugerido: ${({
         sustentada: "Sustentada pelo trecho",
         parcialmente_sustentada: "Parcialmente sustentada",
         nao_sustentada_pelo_trecho: "Não sustentada pelo trecho",
