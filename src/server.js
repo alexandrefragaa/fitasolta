@@ -937,12 +937,12 @@ async function ensurePublicMuralHydrated() {
   publicMuralSyncPromise = (async () => {
     try {
       const queue = await readTursoSourceQueue(1000, true);
-      const batchLimit = 12;
+      const batchLimit = 5;
       const result = await rebuildStoredSourceConnections(queue, batchLimit);
       // Progride em pequenos lotes para não exceder o tempo da função serverless.
       publicMuralSyncNextAttemptAt = Date.now() + (
         result.errors ? 60_000 :
-        result.scanned >= batchLimit ? 15_000 : 5 * 60_000
+        result.scanned >= batchLimit ? 10_000 : 5 * 60_000
       );
       if (result.rebuilt > 0 || result.errors > 0) {
         console.log("Hidratação automática do mural:", JSON.stringify(result));
@@ -1877,7 +1877,6 @@ function parseEntity(body) {
 
 app.get("/api/entities", asyncHandler(async (req, res) => {
   try {
-    await ensurePublicMuralHydrated();
     const entities = await selectEntities.all();
     res.set("Cache-Control", "no-store").json({ entities });
   } catch (error) {
@@ -1942,7 +1941,6 @@ function parseRelationship(body) {
 
 app.get("/api/relationships", asyncHandler(async (req, res) => {
   try {
-    await ensurePublicMuralHydrated();
     const relationships = await selectRelationships.all();
     res.set("Cache-Control", "no-store").json({ relationships });
   } catch (error) {
