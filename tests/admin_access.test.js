@@ -12,6 +12,14 @@ test("homepage is a plain investigative archive with useful filters",()=>{
  assert.ok(!home.includes("source-stats"));assert.ok(!home.includes("analytics.js"));assert.ok(home.includes('id="criterios"'));
  assert.ok(!read("../public/css/style.css").includes("@keyframes"));
 });
+test("public archive does not fail rendering due to a removed filter and loads names dynamically",()=>{
+ assert.ok(!app.includes("categoryFilter"));
+ assert.ok(!app.includes("sourceCategoryFilter"));
+ assert.ok(app.includes("function renderSourcePersonFilter"));
+ for(const name of ["Vorcaro","André Janones","Alexandre de Moraes","STF"]) assert.ok(app.includes(name));
+ assert.ok(!home.includes('<option value="opiniao_previsao">'));
+ assert.ok(app.includes("fontes carregadas; ocorreu um erro ao exibi-las."));
+});
 test("admin intake is inside private dashboard",()=>{
  assert.equal(existsSync(new URL("../public/admin-dashboard.html",import.meta.url)),false);
  assert.ok(login.includes('id="login-form"'));assert.ok(admin.includes('id="source-intake-form"'));assert.ok(admin.includes('id="source-intake-text"'));assert.ok(admin.includes('id="source-intake-media"'));

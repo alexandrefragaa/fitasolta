@@ -980,6 +980,80 @@
     return String(value || "").toLocaleLowerCase("pt-BR").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   }
 
+  function mentionCandidateNames(value) {
+    const input = Array.isArray(value) ? value : String(value || "").split(/[,;|•\n]+/);
+    return input.flatMap((item) => {
+      if (item && typeof item === "object") {
+        return mentionCandidateNames(item.name || item.label || item.title || "");
+      }
+      return String(item || "").split(/[,;|•\n]+/)
+        .map((name) => name.replace(/^\s*(?:pessoas citadas|instituições citadas|casos e processos)\s*:\s*/i, "").replace(/^[-–•\s]+/, "").replace(/\s+/g, " ").trim())
+        .filter((name) => name.length >= 2 && name.length <= 120 && !/^(?:nenhum|nenhuma|não informado|nao informado|n\/a|indefinido|null|undefined|-)$/i.test(name));
+    });
+  }
+
+  function renderSourcePersonFilter(sources = state.publicSources) {
+    const select = elements.sourcePersonFilter;
+    if (!select) return;
+
+    const previous = state.publicSourcePerson || select.value || "";
+    const mentions = new Map();
+    const addNames = (value) => {
+      for (const name of mentionCandidateNames(value)) {
+        const key = normalizeInvestigativeSearch(name);
+        if (key && !mentions.has(key)) mentions.set(key, name);
+      }
+    };
+
+    // Termos pedidos pelo projeto permanecem disponíveis, além das menções reais.
+    for (const name of ["Vorcaro", "André Janones", "Alexandre de Moraes", "STF", "Lula", "Flávio Bolsonaro"]) {
+      addNames(name);
+    }
+
+    for (const source of Array.isArray(sources) ? sources : []) {
+      const details = parseSourceSummary(source.summary || source.description || "");
+      addNames(details.people);
+      addNames(details.organizations);
+      addNames(details.ficha?.people);
+      addNames(details.ficha?.organizations);
+    }
+
+    // Inclui nomes normalizados pelo mural de entidades quando já carregado.
+    for (const entity of Array.isArray(state.entities) ? state.entities : []) {
+      const type = String(entity.type || entity.entity_type || "").toLocaleLowerCase("pt-BR");
+      if (/person|pessoa|organization|organizacao|institution|instituicao|company|empresa/.test(type)) {
+        addNames(entity.name || entity.label);
+      }
+    }
+
+    const sorted = [...mentions.entries()].sort((a, b) => a[1].localeCompare(b[1], "pt-BR"));
+    const options = [];
+    const allOption = document.createElement("option");
+    allOption.value = "";
+    allOption.textContent = "Todas";
+    options.push(allOption);
+
+    for (const [, name] of sorted) {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      options.push(option);
+    }
+
+    const previousKey = normalizeInvestigativeSearch(previous);
+    if (previousKey && !mentions.has(previousKey)) {
+      const option = document.createElement("option");
+      option.value = previous;
+      option.textContent = previous;
+      options.push(option);
+    }
+
+    select.replaceChildren(...options);
+    const match = previousKey ? mentions.get(previousKey) || previous : "";
+    select.value = match;
+    state.publicSourcePerson = select.value || "";
+  }
+
   function renderPublicSources() {
     if (!elements.publicSourceList) return;
     const term = normalizeInvestigativeSearch(elements.search?.value || "");
@@ -987,7 +1061,7 @@
     const verdictFilter = elements.sourceVerdictFilter?.value || state.publicSourceVerdict || "";
     const mode = state.publicSourceMode || "all";
     const all = Array.isArray(state.publicSources) ? state.publicSources : [];
-
+    renderSourcePersonFilter(all);
     const visible = all.filter((source) => {
       const d = parseSourceSummary(source.summary || source.description || "");
       const category = source.category || d.category || "Outros";
@@ -1007,7 +1081,7 @@
       const personMatches = !personFilter || searchText.includes(personFilter);
       const verdictMatches = !verdictFilter || fact?.verdict === verdictFilter;
       return modeMatches && personMatches && verdictMatches &&
-        (!term || searchText.includes(term)) && (!categoryFilter || category === categoryFilter);
+        (!term || searchText.includes(term));
     });
 
     if (elements.boardSummary) {
@@ -1015,7 +1089,7 @@
         elements.boardSummary.textContent = "Arquivo indisponível. A conexão com a base de registros falhou.";
       } else {
         const parts = [visible.length + (visible.length === 1 ? " registro" : " registros")];
-        if (term || categoryFilter || personFilter || verdictFilter || mode !== "all") parts.push("filtros aplicados");
+        if (term || personFilter || verdictFilter || mode !== "all") parts.push("filtros aplicados");
         elements.boardSummary.textContent = parts.join(" · ");
       }
     }
@@ -1184,9 +1258,47 @@
   async function loadPublicBoard() {
     if(!elements.publicSourceList||state.loadingPublicBoard)return;state.loadingPublicBoard=true;
     if(!state.publicSources.length)elements.publicSourceList.replaceChildren(createMessage("Consultando o banco e os feeds públicos…"));
-    try{const r=await fetch(API+"/sources",{headers:{Accept:"application/json"},cache:"no-store"}),data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||"Falha ao carregar fontes (HTTP "+r.status+").");state.publicSources=Array.isArray(data.sources)?data.sources:[];state.publicSourceStats={...(data.stats||{}),queueAvailable:data.queueAvailable!==false};renderPublicSources()}
-    catch(e){state.publicSourceStats={...(state.publicSourceStats||{}),queueAvailable:false};elements.publicSourceList.replaceChildren(createMessage(e.message||"Não foi possível carregar fontes.","error-message"));if(elements.boardSummary)elements.boardSummary.textContent="Não foi possível conectar ao banco de fontes.";}
-    finally{state.loadingPublicBoard=false}
+    try {
+      let data;
+      try {
+        const response = await fetch(API + "/sources", {
+          headers: { Accept: "application/json" },
+          cache: "no-store"
+        });
+        data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Falha ao carregar fontes (HTTP " + response.status + ").");
+        }
+      } catch (error) {
+        // Só uma falha HTTP/rede marca a base como indisponível. Erro de interface
+        // não pode ser apresentado como falha de conexão com o banco.
+        state.publicSourceStats = { ...(state.publicSourceStats || {}), queueAvailable: false };
+        elements.publicSourceList.replaceChildren(
+          createMessage(error.message || "Não foi possível carregar fontes.", "error-message")
+        );
+        if (elements.boardSummary) {
+          elements.boardSummary.textContent = error.message || "Não foi possível conectar ao banco de fontes.";
+        }
+        return;
+      }
+
+      state.publicSources = Array.isArray(data.sources) ? data.sources : [];
+      state.publicSourceStats = { ...(data.stats || {}), queueAvailable: data.queueAvailable !== false };
+      try {
+        renderSourcePersonFilter(state.publicSources);
+        renderPublicSources();
+      } catch (error) {
+        console.error("Falha ao exibir registros públicos:", error?.message || "Erro de interface");
+        elements.publicSourceList.replaceChildren(
+          createMessage("As fontes foram carregadas, mas houve uma falha ao exibi-las. Atualize a página.", "error-message")
+        );
+        if (elements.boardSummary) {
+          elements.boardSummary.textContent = state.publicSources.length + " fontes carregadas; ocorreu um erro ao exibi-las.";
+        }
+      }
+    } finally {
+      state.loadingPublicBoard = false;
+    }
   }
 
   // ------------------------------------------------------------
@@ -1215,6 +1327,7 @@
       state.entities = Array.isArray(entityData.entities)
         ? entityData.entities
         : [];
+      renderSourcePersonFilter(state.publicSources);
 
       state.relationships = Array.isArray(relationshipData.relationships)
         ? relationshipData.relationships
@@ -1964,7 +2077,6 @@
 
     elements.refreshGraph?.addEventListener("click", () => { loadGraph(); loadPublicBoard(); });
     elements.refreshSources?.addEventListener("click", loadPublicBoard);
-    elements.sourceCategoryFilter?.addEventListener("change", renderPublicSources);
     elements.sourcePersonFilter?.addEventListener("change", () => {
       state.publicSourcePerson = elements.sourcePersonFilter.value || "";
       renderPublicSources();
