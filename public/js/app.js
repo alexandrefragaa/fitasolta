@@ -69,7 +69,6 @@
     boardSummary: $("#board-summary"),
     sourcePersonFilter: $("#source-person-filter"),
     sourceVerdictFilter: $("#source-verdict-filter"),
-    sourceCategoryFilter: $("#source-category-filter"),
     sourceLiveState: $("#source-live-state"),
     refreshSources: $("#refresh-sources"),
     graphDetails: $("#entity-details"),
@@ -951,7 +950,7 @@
     let ficha = null;
     if (pos >= 0) { try { ficha = JSON.parse(raw.slice(pos + marker.length).trim()); } catch {} }
     return {
-      category: read("Categoria") || "Outros", eventDate: read("Data mencionada"),
+      category: read("Categoria") || "", eventDate: read("Data mencionada"),
       people: read("Pessoas citadas"), organizations: read("Instituições citadas"),
       cases: read("Casos e processos"), legalStatus: read("Andamento mencionado pela fonte"),
       summary: read("Resumo da fonte") || narrative,
@@ -966,7 +965,6 @@
   function renderPublicSources() {
     if (!elements.publicSourceList) return;
     const term = normalizeInvestigativeSearch(elements.search?.value || "");
-    const categoryFilter = elements.sourceCategoryFilter?.value || "";
     const personFilter = normalizeInvestigativeSearch(elements.sourcePersonFilter?.value || state.publicSourcePerson || "");
     const verdictFilter = elements.sourceVerdictFilter?.value || state.publicSourceVerdict || "";
     const mode = state.publicSourceMode || "all";
@@ -1032,7 +1030,7 @@
       const imageUrl = String(ficha.image_url || (source.media_type === "image" ? source.media_url : ""));
       const card = createElement("article", "public-source-card" + (videoId ? " has-video" : ""));
       const metadata = createElement("p", "source-card-meta");
-      metadata.append(createElement("span", "", source.category || details.category || "Outros"));
+      
       card.append(metadata, createElement("h3", "source-card-title", source.title || "Fonte sem título"));
 
       if (videoId) {
