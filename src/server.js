@@ -1282,7 +1282,15 @@ app.get("/api/cron/process-sources",async(req,res)=>{
 
 app.get("/api/admin/sources", requireAdmin, async (req, res) => {
   try {
-    const sources = await readTursoSourceQueue();
+    const [queue, registeredLinks] = await Promise.all([
+      readTursoSourceQueue(),
+      db.prepare("SELECT source_url AS url FROM entities WHERE source_url <> '' UNION SELECT source_url AS url FROM relationships WHERE source_url <> ''").all()
+    ]);
+    const linkedSourceKeys = new Set(registeredLinks.map((row) => sourceIdentityKey(row.url)).filter(Boolean));
+    const sources = queue.map((source) => ({
+      ...source,
+      linked_to_mural: linkedSourceKeys.has(sourceIdentityKey(source.original_url || source.url || source.media_url))
+    }));
     await audit(req, "source_queue_view", "source_queue");
     res.set("Cache-Control", "no-store").json({ sources });
   } catch (error) {
