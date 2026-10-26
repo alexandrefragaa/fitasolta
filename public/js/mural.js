@@ -55,9 +55,19 @@
   const query=norm(search.value.trim());
   let visible;
   if(query){
+   // Mostra os caminhos entre os resultados pesquisados e os registros ligados,
+   // expandindo até três níveis sem criar relações que não estejam no banco.
    const matched=new Set(nodes.map(n=>n.id));
-   nodes.forEach(n=>(adjacency.get(n.id)||[]).forEach(id=>matched.add(id)));
-   visible=[...matched].map(id=>allById.get(id)).filter(Boolean).sort((a,b)=>(degree.get(b.id)||0)-(degree.get(a.id)||0)).slice(0,45);
+   let frontier=[...matched];
+   for(let depth=0;depth<3&&matched.size<45;depth++){
+    const next=[];
+    frontier.forEach(id=>(adjacency.get(id)||[]).forEach(other=>{
+     if(!matched.has(other)&&matched.size<45){matched.add(other);next.push(other)}
+    }));
+    frontier=next;
+    if(!frontier.length)break;
+   }
+   visible=[...matched].map(id=>allById.get(id)).filter(Boolean);
   }else{
    const seed=[...state.entities].sort((a,b)=>(degree.get(b.id)||0)-(degree.get(a.id)||0))[0];
    const picked=new Set(),queue=seed?[seed.id]:[];
