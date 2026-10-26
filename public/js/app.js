@@ -1377,6 +1377,21 @@
       .includes(term);
   }
 
+  function entityPhoto(entity) {
+    const direct = safeHttpUrl(entity.photo_url || entity.image_url || entity.photo || "");
+    if (direct) return direct;
+    const name = String(entity.name || "").trim().toLocaleLowerCase("pt-BR");
+    const source = (state.publicSources || []).find((item) => {
+      const haystack = (String(item.title || "") + " " + String(item.summary || item.description || "")).toLocaleLowerCase("pt-BR");
+      return name && haystack.includes(name) && (
+        safeHttpUrl(item.image_url) ||
+        (item.media_type === "image" && safeHttpUrl(item.media_url))
+      );
+    });
+    if (!source) return "";
+    return safeHttpUrl(source.image_url) || (source.media_type === "image" ? safeHttpUrl(source.media_url) : "") || "";
+  }
+
   function renderGraph() {
     if (!elements.graph) return;
     const term = getSearchTerm();
@@ -1391,7 +1406,7 @@
     const ids = new Set(visibleEntities.map((entity) => entity.id));
     for (const relation of state.relationships) { if (!ids.has(relation.source_id) || !ids.has(relation.target_id)) continue; const a = positions.get(relation.source_id), b = positions.get(relation.target_id); if (!a || !b) continue; const line = document.createElementNS('http://www.w3.org/2000/svg', 'line'); line.setAttribute('x1', a.x); line.setAttribute('y1', a.y); line.setAttribute('x2', b.x); line.setAttribute('y2', b.y); line.setAttribute('class', 'mural-edge'); svg.appendChild(line); }
     canvas.appendChild(svg);
-    for (const entity of visibleEntities) { const p = positions.get(entity.id); const node = createElement('button', 'mural-person-node'); node.type = 'button'; node.style.left = p.x / width * 100 + '%'; node.style.top = p.y / height * 100 + '%'; node.setAttribute('aria-pressed', String(state.selectedEntityId === entity.id)); const photo = safeHttpUrl(entity.photo_url || entity.image_url || ''); if (photo) { const img = createElement('img', 'mural-person-photo'); img.src = photo; img.alt = ''; img.loading = 'lazy'; img.addEventListener('error', () => img.remove(), { once: true }); node.appendChild(img); } else { const initials = String(entity.name || '?').trim().split(/\s+/).slice(0,2).map((part) => part[0] || '').join('').toUpperCase(); node.appendChild(createElement('span', 'mural-person-initials', initials || '?')); } node.appendChild(createElement('span', 'mural-person-name', entity.name || 'Registro sem nome')); node.appendChild(createElement('span', 'mural-person-type', readableType(entity.type))); node.addEventListener('click', () => { state.selectedEntityId = entity.id; renderGraph(); renderEntityDetails(entity); }); canvas.appendChild(node); }
+    for (const entity of visibleEntities) { const p = positions.get(entity.id); const node = createElement('button', 'mural-person-node'); node.type = 'button'; node.style.left = p.x / width * 100 + '%'; node.style.top = p.y / height * 100 + '%'; node.setAttribute('aria-pressed', String(state.selectedEntityId === entity.id)); const photo = entityPhoto(entity); if (photo) { const img = createElement('img', 'mural-person-photo'); img.src = photo; img.alt = ''; img.loading = 'lazy'; img.addEventListener('error', () => img.remove(), { once: true }); node.appendChild(img); } else { const initials = String(entity.name || '?').trim().split(/\s+/).slice(0,2).map((part) => part[0] || '').join('').toUpperCase(); node.appendChild(createElement('span', 'mural-person-initials', initials || '?')); } node.appendChild(createElement('span', 'mural-person-name', entity.name || 'Registro sem nome')); node.appendChild(createElement('span', 'mural-person-type', readableType(entity.type))); node.addEventListener('click', () => { state.selectedEntityId = entity.id; renderGraph(); renderEntityDetails(entity); }); canvas.appendChild(node); }
     elements.graph.appendChild(canvas);
     const related = state.relationships.filter((r) => ids.has(r.source_id) && ids.has(r.target_id));
     if (related.length) { const list = createElement('div', 'mural-relationship-list'); list.appendChild(createElement('h3', '', 'Ligações registradas')); for (const r of related) { const source = visibleEntities.find((e) => e.id === r.source_id), target = visibleEntities.find((e) => e.id === r.target_id); const card = createElement('article', 'mural-relationship-card'); card.appendChild(createElement('strong', '', (source?.name || 'Registro') + ' → ' + (target?.name || 'Registro'))); card.appendChild(createElement('p', '', r.label || r.relation_type || 'Relação')); if (r.description) card.appendChild(createElement('p', '', r.description)); if (r.source_date) card.appendChild(createElement('p', 'entity-source-meta', 'Data: ' + r.source_date)); if (r.evidence_status) card.appendChild(createElement('p', 'entity-source-meta', 'Estado: ' + r.evidence_status)); if (safeHttpUrl(r.source_url)) appendSourceLink(card, r.source_url, 'Consultar fonte da ligação'); list.appendChild(card); } elements.graph.appendChild(list); }
