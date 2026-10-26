@@ -43,7 +43,7 @@
    .filter(p=>!q||norm([p.name,p.description].join(" ")).includes(q))
    .map(entity=>({name:entity.name,entity,aliases:[]}));
  }
- function render(){if(!dossier.hidden)return;const people=directoryPeople();draw([],[]);renderList(people);const n=state.entities.find(e=>e.id===state.selected);if(n&&isPerson(n))showDetails(n);else emptyDetails()}
+ function render(){if(!dossier.hidden)return;renderList(directoryPeople())}
  function draw(nodes,edges){
   graph.replaceChildren();
   if(!nodes.length){graph.append(el("p","empty-state",state.entities.length?"Nenhum ponto corresponde à pesquisa.":"Ainda não há entidades publicadas no mural."));return}
@@ -112,5 +112,5 @@
  }
  function showPlaceholderDossier(name){explorer.hidden=true;dossier.hidden=false;dossierContent.replaceChildren();dossierContent.append(el("p","eyebrow","PESSOA"),el("h1","dossier-title",name));appendKnownCases(dossierContent,name);window.scrollTo({top:0,behavior:"instant"})}
  function showDossier(e){state.selected=e.id;explorer.hidden=true;dossier.hidden=false;dossierContent.replaceChildren();dossierContent.append(el("p","eyebrow","DOSSIÊ"),el("h1","dossier-title",e.name||"Pessoa sem nome"));const photo=el("div","dossier-person-photo");dossierContent.append(photo);setPersonImage(photo,e);const sources=el("section","dossier-section");sources.append(el("h3","","Fontes"));const sl=el("div","dossier-cases");const mainUrl=safeUrl(e.source_url);if(mainUrl){const a=el("a","", "Abrir fonte principal ↗");a.href=mainUrl;a.target="_blank";a.rel="noopener noreferrer";sl.append(a)}const matched=state.sources.filter(s=>norm([s.title,s.summary,s.url].join(" ")).includes(norm(e.name||"")));matched.slice(0,8).forEach(s=>{const u=safeUrl(s.url||s.original_url);if(!u)return;const a=el("a","",(s.title||"Fonte relacionada")+" ↗");a.href=u;a.target="_blank";a.rel="noopener noreferrer";sl.append(a)});if(!sl.children.length)sl.append(el("p","muted","Nenhuma fonte vinculada disponível."));sources.append(sl);dossierContent.append(sources);appendKnownCases(dossierContent,e.name);window.scrollTo({top:0,behavior:"instant"})}
- $("#mural-refresh").addEventListener("click",load);$("#mural-search-clear").addEventListener("click",()=>{search.value="";render()});search.addEventListener("input",render);$("#dossier-back").addEventListener("click",()=>{dossier.hidden=true;explorer.hidden=false;render();window.scrollTo({top:0,behavior:"instant"})});window.addEventListener("resize",()=>{if(dossier.hidden)render()});window.addEventListener("focus",()=>{if(document.visibilityState!=="hidden"&&status.textContent.startsWith("Falha"))load()});load();
+ $("#mural-search-clear").addEventListener("click",()=>{search.value="";render()});search.addEventListener("input",render);$("#dossier-back").addEventListener("click",()=>{dossier.hidden=true;explorer.hidden=false;render();window.scrollTo({top:0,behavior:"instant"})});window.addEventListener("focus",()=>{if(document.visibilityState!=="hidden"&&status.textContent.startsWith("Falha"))load()});load();
 })();
