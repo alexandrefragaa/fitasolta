@@ -21,3 +21,6 @@
 .public-source-card,.public-source-card.has-video{grid-column:auto;width:100%;box-sizing:border-box}
 .public-source-card .source-card-title,.public-source-card .source-card-summary{max-width:100%}
 .public-source-card .source-video-frame{width:100%;max-width:900px}
+
+/* Mural: nomes clicáveis e fontes organizadas em grades. */
+.graph-nodes{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.65rem}.graph-node{display:flex;align-items:center;justify-content:flex-start;min-height:54px;padding:.8rem 1rem;border:1px solid var(--border);border-radius:2px;background:#fff;color:var(--text);text-align:left}.graph-node:hover,.graph-node[aria-pressed="true"]{border-color:var(--accent);background:#f0eeea}.graph-node-name{font-weight:700;overflow-wrap:anywhere}.entity-source-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:.75rem;margin-top:.85rem}.entity-source-card{min-width:0;padding:.9rem;border:1px solid var(--border);background:#fff}.entity-source-link{display:block;font-weight:700;overflow-wrap:anywhere}.entity-source-url{margin:.5rem 0 0;color:var(--muted);font-size:.76rem;overflow-wrap:anywhere;word-break:break-word}
