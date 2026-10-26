@@ -12,57 +12,36 @@
  async function resolvePhoto(person){const direct=safeUrl(person?.photo_url||person?.image_url||person?.portrait_url);if(direct)return direct;const name=text(person?.name).trim();if(!name)return "";const key=norm(name);if(photoCache.has(key))return photoCache.get(key);photoCache.set(key,"");try{const r=await fetch("https://pt.wikipedia.org/api/rest_v1/page/summary/"+encodeURIComponent(name),{headers:{Accept:"application/json"}});if(!r.ok)return "";const d=await r.json();const title=norm(String(d.title||"").replace(/_/g," "));if(!d.thumbnail?.source||(!title.includes(key)&&!key.includes(title)))return "";const url=safeUrl(d.thumbnail.source);photoCache.set(key,url);return url}catch{return ""}}
  function setPersonImage(avatar,person){resolvePhoto(person).then(url=>{if(!url||!avatar.isConnected)return;const img=el("img","mural-person-image");img.src=url;img.alt="";img.loading="lazy";img.referrerPolicy="no-referrer";img.addEventListener("error",()=>img.remove(),{once:true});avatar.replaceChildren(img)})}
  const evidenceLabel=s=>({documentado:"Documentado na fonte",fato_documentado:"Fato documentado",alegacao:"Alegação atribuída",hipotese:"Hipótese",nao_verificado:"Não verificado",nao_verificada:"Não verificado"}[s]||s||"Estado não informado");
- function parseDetails(raw){const s=text(raw);const get=(patterns)=>{for(const p of patterns){const m=s.match(p);if(m&&m[1])return m[1].trim()}return ""};return {
- instances:get([/(?:inst[aâ]ncias?|graus? de jurisdi[cç][aã]o)\s*[:—-]\s*([^\n.;]+)/i]),
- custody:get([/(?:tempo preso|per[ií]odo de pris[aã]o|pris[aã]o por)\s*[:—-]\s*([^\n.;]+)/i]),
- custodyDays:get([/(?:dias preso|dias de pris[aã]o)\s*[:—-]\s*([^\n.;]+)/i]),
- annulment:get([/(?:anula[cç][aã]o|anulado|anulada)\s*[:—-]\s*([^\n]+)/i]),
- annulmentReason:get([/(?:motivo da anula[cç][aã]o|fundamento da anula[cç][aã]o)\s*[:—-]\s*([^\n]+)/i]),
- limitation:get([/(?:prescri[cç][aã]o|prazo prescricional)\s*[:—-]\s*([^\n.;]+)/i]),
- outcome:get([/(?:resultado final|desfecho|situa[cç][aã]o final)\s*[:—-]\s*([^\n.;]+)/i]),
- outcomeReason:get([/(?:motivo do arquivamento|motivo da rejei[cç][aã]o|fundamento do arquivamento|fundamento da rejei[cç][aã]o)\s*[:—-]\s*([^\n]+)/i]),
- caseNumber:get([/(?:processo n[uú]mero|n[uú]mero do processo|processo)\s*[:#№-]\s*([^\n.;]+)/i])
- }}
- function field(label,value){const d=el("div","dossier-field");d.append(el("dt","",label));const dd=el("dd",value?"":"unknown",value||"Não informado nas fontes cadastradas");d.append(dd);return d}
- async function load(){status.textContent="Carregando pessoas e dossiês…";
- const fetchJson=async(url)=>{const response=await fetch(url,{headers:{Accept:"application/json"},cache:"no-store"});if(!response.ok)throw Error("HTTP "+response.status+" em "+url);return response.json()};
- try{
-  // Uma falha no processamento de fontes não deve impedir que pessoas e dossiês existentes abram.
-  const [entityResult,relationshipResult,sourceResult]=await Promise.allSettled([fetchJson("/api/entities"),fetchJson("/api/relationships"),fetchJson("/api/sources")]);
-  if(entityResult.status!=="fulfilled")throw entityResult.reason||new Error("Não foi possível carregar as pessoas.");
-  const entityData=entityResult.value,relationshipData=relationshipResult.status==="fulfilled"?relationshipResult.value:{relationships:[]},sourceData=sourceResult.status==="fulfilled"?sourceResult.value:{sources:[]};
-  state.entities=Array.isArray(entityData.entities)?entityData.entities:[];
-  state.relations=Array.isArray(relationshipData.relationships)?relationshipData.relationships:[];
-  state.sources=Array.isArray(sourceData.sources)?sourceData.sources:[];
-  state.positions.clear();
-  status.textContent=state.entities.length+" registros · "+state.relations.length+" relações · "+state.sources.length+" fontes"+(sourceResult.status!=="fulfilled"?" · fontes indisponíveis temporariamente":"");
-  render();
- }catch(e){status.textContent="Falha ao carregar o diretório: "+(e.message||"erro desconhecido");graph.replaceChildren(el("p","empty-state","O mural não conseguiu consultar a lista de pessoas. Tente Atualizar."));list.replaceChildren(el("p","empty-state","Não foi possível carregar as pessoas. Tente novamente."))}}
+ async function load(){
+  status.textContent="Carregando pessoas…";
+  const fetchJson=async(url)=>{const response=await fetch(url,{headers:{Accept:"application/json"},cache:"no-store"});if(!response.ok)throw Error("HTTP "+response.status);return response.json()};
+  try{
+   const [entityResult,sourceResult]=await Promise.allSettled([fetchJson("/api/entities"),fetchJson("/api/sources")]);
+   if(entityResult.status!=="fulfilled")throw entityResult.reason||new Error("Não foi possível carregar as pessoas.");
+   state.entities=Array.isArray(entityResult.value.entities)?entityResult.value.entities:[];
+   state.sources=sourceResult.status==="fulfilled"&&Array.isArray(sourceResult.value.sources)?sourceResult.value.sources:[];
+   status.textContent="";
+   render();
+  }catch(e){
+   status.textContent="Não foi possível carregar as pessoas. Tente atualizar.";
+   list.replaceChildren(el("p","empty-state","O mural não conseguiu carregar a lista de pessoas."));
+  }
+ }
  function data(){const q=norm(search.value.trim()),nodes=state.entities.filter(e=>!q||norm([e.name,e.type,e.description,e.source_url,e.evidence_status].join(" ")).includes(q)),ids=new Set(nodes.map(n=>n.id));const edges=state.relations.filter(r=>ids.has(r.source_id)&&ids.has(r.target_id));return {nodes,edges}}
  function isPerson(e){return /person|pessoa/i.test(String(e.type||""))}
- const featuredPeople=[
-  {name:"Flávio Bolsonaro",aliases:["Flavio Bolsonaro"]},
-  {name:"Luiz Inácio Lula da Silva",aliases:["Lula","Luiz Inacio Lula da Silva"]},
-  {name:"Alexandre de Moraes",aliases:[]},
-  {name:"Cristiano Zanin",aliases:[]},
-  {name:"Daniel Vorcaro",aliases:["Vorcaro","Daniel Vorcaro"]},
-  {name:"André Janones",aliases:["Andre Janones","André Zanones","Andre Zanones"]}
- ];
  function directoryPeople(){
-  const people=state.entities.filter(isPerson);
-  const used=new Set();
-  const result=[];
-  for(const item of featuredPeople){
-   const keys=[item.name,...item.aliases].map(norm);
-   const found=people.find(p=>!used.has(p.id)&&keys.some(k=>norm(p.name)===k||norm(p.name).includes(k)||k.includes(norm(p.name))));
-   if(found){used.add(found.id);result.push({name:found.name,entity:found,aliases:item.aliases})}
-   else result.push({name:item.name,entity:null,aliases:item.aliases});
-  }
-  people.filter(p=>!used.has(p.id)).sort((a,b)=>text(a.name).localeCompare(text(b.name),"pt-BR")).forEach(p=>result.push({name:p.name,entity:p,aliases:[]}));
+  const people=state.entities.filter(isPerson).filter(p=>text(p.name).trim());
   const unique=new Map();
-  result.forEach(p=>{const key=norm(p.name);if(!key)return;const old=unique.get(key);if(!old||(!old.entity&&p.entity))unique.set(key,p)});
+  for(const person of people){
+   const key=norm(person.name).replace(/[^a-z0-9]/g,"");
+   if(!key)continue;
+   const old=unique.get(key);
+   if(!old || ((!old.photo_url&&!old.image_url&&!old.portrait_url)&& (person.photo_url||person.image_url||person.portrait_url)) || (!old.source_url&&person.source_url)) unique.set(key,person);
+  }
   const q=norm(search.value.trim());
-  return [...unique.values()].filter(p=>!q||norm([p.name,...p.aliases,p.entity?.description].join(" ")).includes(q));
+  return [...unique.values()].sort((a,b)=>text(a.name).localeCompare(text(b.name),"pt-BR"))
+   .filter(p=>!q||norm([p.name,p.description].join(" ")).includes(q))
+   .map(entity=>({name:entity.name,entity,aliases:[]}));
  }
  function render(){if(!dossier.hidden)return;const people=directoryPeople();draw([],[]);renderList(people);const n=state.entities.find(e=>e.id===state.selected);if(n&&isPerson(n))showDetails(n);else emptyDetails()}
  function draw(nodes,edges){
