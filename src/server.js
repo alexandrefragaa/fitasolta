@@ -876,23 +876,39 @@ function parseStoredSourceReview(source) {
 
 async function rebuildStoredSourceConnections(queue, limit = 200) {
   let scanned = 0, rebuilt = 0, skipped = 0, errors = 0;
-  const [syncedRows, documentRows] = await Promise.all([
+  const [syncedRows, documentRows, relationshipRows] = await Promise.all([
     db.prepare("SELECT source_url, result_json FROM source_connection_sync").all(),
-    db.prepare("SELECT source_url FROM entities WHERE source_url <> ''").all()
+    db.prepare("SELECT source_url FROM entities WHERE source_url <> ''").all(),
+    db.prepare("SELECT source_url, COUNT(*) AS total FROM relationships WHERE source_url <> '' GROUP BY source_url").all()
   ]);
   const synced = new Map();
   for (const row of syncedRows) {
     let result = {};
     try { result = JSON.parse(String(row.result_json || "{}")); } catch {}
-    synced.set(String(row.source_url || ""), result.format === "summary-v1");
+    synced.set(String(row.source_url || ""), result);
   }
   const existingSourceUrls = new Set(documentRows.map((row) => String(row.source_url || "")));
+  const relationshipCounts = new Map(relationshipRows.map((row) => [String(row.source_url || ""), Number(row.total || 0)]));
   const candidates = queue.filter((source) => {
     const sourceUrl = String(source.original_url || source.url || "").trim();
     const summary = String(source.summary || "");
     const hasStoredSummary = summary.includes("FICHA_AUTO_JSON:") ||
       /^(?:Categoria|Pessoas citadas|Instituições citadas|Casos e processos|Resumo da fonte)\s*:/im.test(summary);
-    const needsRebuild = !synced.get(sourceUrl) || !existingSourceUrls.has(sourceUrl);
+    const previousSync = synced.get(sourceUrl) || {};
+    const hasRelationships = Number(relationshipCounts.get(sourceUrl) || 0) > 0;
+    let hasNamedEntities = Number(previousSync.entities || 0) > 0;
+    // Corrige fontes marcadas como sincronizadas que só criaram o documento,
+    // mas não deixaram vínculos com pessoas, instituições ou processos.
+    if (!hasNamedEntities && !hasRelationships && previousSync.format === "summary-v1") {
+      try {
+        const review = parseStoredSourceReview(source);
+        hasNamedEntities = Boolean(review && [review.people, review.organizations, review.cases]
+          .some((items) => Array.isArray(items) && items.length > 0));
+      } catch {}
+    }
+    const needsRebuild = previousSync.format !== "summary-v1" ||
+      !existingSourceUrls.has(sourceUrl) ||
+      (!hasRelationships && hasNamedEntities);
     return source.status === "completed" &&
       sourceUrl &&
       hasStoredSummary &&
@@ -912,10 +928,12 @@ async function rebuildStoredSourceConnections(queue, limit = 200) {
         continue;
       }
       await persistSourceConnections(Object.assign({}, source, { url: sourceUrl }), review);
+      const linkedRows = await db.prepare("SELECT COUNT(*) AS total FROM relationships WHERE source_url = ?").get(sourceUrl);
       await db.prepare("INSERT OR REPLACE INTO source_connection_sync (source_url, synced_at, result_json) VALUES (?, CURRENT_TIMESTAMP, ?)")
         .run(sourceUrl, JSON.stringify({
           format: "summary-v1",
-          entities: review.people.length + review.organizations.length + review.cases.length
+          entities: review.people.length + review.organizations.length + review.cases.length,
+          relationships: Number(linkedRows?.total || 0)
         }));
       rebuilt++;
     } catch (error) {
