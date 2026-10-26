@@ -35,3 +35,17 @@
 
 /* Retratos reais carregados quando há correspondência segura na Wikipédia. */
 .mural-person-avatar{overflow:hidden;flex-shrink:0}.mural-person-image{display:block;width:100%;height:100%;object-fit:cover;border-radius:inherit}.dossier-person-photo{width:132px;height:132px;margin:.8rem 0 1rem;overflow:hidden;border:1px solid #454b57;border-radius:50%;background:#202733}.dossier-person-photo .mural-person-image{width:100%;height:100%;object-fit:cover}.dossier-cases>a{display:block;padding:.65rem 0;border-bottom:1px solid #292d34;overflow-wrap:anywhere}
+
+/* Grafo investigativo: conexões pontilhadas entre todos os tipos de registro. */
+.mural-network-section{margin:1.25rem 0 1.75rem;border:1px solid #292d34;background:#101318;padding:.9rem}
+.mural-network-section h2,.mural-records h2{font-size:1.05rem;margin:.2rem 0 .8rem}
+.mural-network-legend{display:flex;flex-wrap:wrap;gap:.7rem 1rem;font-size:.75rem;color:#a2a8b2;margin-bottom:.8rem}
+.mural-network-legend span{display:inline-flex;align-items:center;gap:.35rem}
+.network-dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+.network-dot.person{background:#9a6aff}.network-dot.organization{background:#5eae88}.network-dot.document{background:#6f91d9}
+.network-line{display:inline-block;width:20px;border-top:2px dotted #8490a3}
+.mural-graph{height:560px;min-height:380px;overflow:auto;background:#0d1015;background-image:radial-gradient(#292e38 .8px,transparent .8px);background-size:18px 18px}
+.mural-graph svg{display:block;width:100%;min-width:560px;height:100%;user-select:none}
+.mural-edge{stroke:#8490a3;stroke-width:1.5;stroke-dasharray:3 5;opacity:.9}
+.mural-node{cursor:pointer}.mural-node:focus rect{stroke:#fff;stroke-width:2.5}
+@media(max-width:560px){.mural-network-section{padding:.55rem}.mural-graph{height:470px}.mural-graph svg{min-width:620px}}
