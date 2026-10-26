@@ -1332,9 +1332,8 @@
       state.relationships = Array.isArray(relationshipData.relationships)
         ? relationshipData.relationships
         : [];
-      const hasRelations = state.entities.length > 0 || state.relationships.length > 0;
-      if (elements.graphSection) elements.graphSection.hidden = !hasRelations;
-      if (elements.graphNavLink) elements.graphNavLink.hidden = !hasRelations;
+      if (elements.graphSection) elements.graphSection.hidden = false;
+      if (elements.graphNavLink) elements.graphNavLink.hidden = false;
 
       renderGraph();
 
