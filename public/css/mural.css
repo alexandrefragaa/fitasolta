@@ -28,3 +28,7 @@
 .person-directory-card .button{width:100%;text-align:center}
 @media(max-width:900px){.mural-record-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){.mural-record-list{grid-template-columns:1fr}}
+
+
+/* Diretório visual de perfis: ícones clicáveis e foco nos dossiês, sem grafo de conexões. */
+.mural-layout .mural-main,#mural-details{display:none!important}.mural-records{margin-top:.5rem;padding-top:.5rem;border-top:0}.mural-record-list{grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:1rem}.mural-person-card{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:.65rem;min-height:170px;padding:1.15rem .7rem;border:1px solid #303640;border-radius:8px;background:#11151b;color:#e8eaed;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}.mural-person-card:hover,.mural-person-card:focus-visible{background:#171d26;border-color:#aabfff;outline:none}.mural-person-avatar{display:grid;place-items:center;width:76px;height:76px;border-radius:50%;border:1px solid #596477;background:#202733;color:#dce3f6}.mural-person-avatar-icon{font-size:2.7rem;line-height:1}.mural-person-name{font-size:.92rem;line-height:1.35;overflow-wrap:anywhere}.mural-person-meta{font-size:.72rem;line-height:1.35;color:#a2a8b2}.person-directory-card{display:none!important}@media(max-width:560px){.mural-record-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem}.mural-person-card{min-height:150px;padding:.9rem .45rem}.mural-person-avatar{width:66px;height:66px}}
