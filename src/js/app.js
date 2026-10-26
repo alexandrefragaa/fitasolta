@@ -801,159 +801,29 @@
 
   function renderGraph() {
     if (!elements.graph) return;
-
     const term = getSearchTerm();
-
-    const visibleEntities = state.entities.filter((entity) => {
-      if (!term) return true;
-
-      return [
-        entity.name,
-        entity.type,
-        entity.description,
-        entity.evidence_status
-      ].some((value) => matchesSearch(value, term));
-    });
-
-    const visibleIds = new Set(
-      visibleEntities.map((entity) => entity.id)
+    const visibleEntities = state.entities.filter((entity) =>
+      [entity.name, entity.description].some((value) => matchesSearch(value, term))
     );
-
-    const entitiesById = new Map(
-      state.entities.map((entity) => [entity.id, entity])
-    );
-
     elements.graph.replaceChildren();
-
-    if (visibleEntities.length === 0) {
-      elements.graph.appendChild(
-        createMessage(
-          term
-            ? "Nenhuma entidade corresponde à pesquisa."
-            : "Nenhuma entidade cadastrada. Entre na área administrativa para gerenciar os dados."
-        )
-      );
-
+    if (!visibleEntities.length) {
+      elements.graph.appendChild(createMessage(term ? "Nenhuma pessoa corresponde à pesquisa." : "As pessoas aparecerão aqui quando houver registros disponíveis."));
       return;
     }
-
-    const nodeHeading = createElement("h3", "", "Entidades");
     const nodesContainer = createElement("div", "graph-nodes");
-
     for (const entity of visibleEntities) {
       const button = createElement("button", "graph-node");
       button.type = "button";
-      button.setAttribute(
-        "aria-pressed",
-        String(state.selectedEntityId === entity.id)
-      );
-
-      const title = createElement(
-        "span",
-        "graph-node-name",
-        entity.name || "Entidade sem nome"
-      );
-
-      const category = createElement(
-        "span",
-        "graph-node-type muted",
-        readableType(entity.type)
-      );
-
-      const status = createElement(
-        "span",
-        "graph-node-status",
-        readableStatus(entity.evidence_status)
-      );
-
-      button.append(title, category, status);
-
+      button.setAttribute("aria-pressed", String(state.selectedEntityId === entity.id));
+      button.appendChild(createElement("span", "graph-node-name", entity.name || "Pessoa sem nome"));
       button.addEventListener("click", () => {
         state.selectedEntityId = entity.id;
         renderGraph();
         renderEntityDetails(entity);
       });
-
       nodesContainer.appendChild(button);
     }
-
-    elements.graph.append(nodeHeading, nodesContainer);
-
-    const visibleRelationships = state.relationships.filter((relationship) => {
-      const source = entitiesById.get(relationship.source_id);
-      const target = entitiesById.get(relationship.target_id);
-
-      if (!source || !target) return false;
-
-      if (!term) return true;
-
-      const relationMatches = [
-        relationship.label,
-        relationship.relation_type,
-        relationship.description,
-        relationship.evidence_status,
-        source.name,
-        target.name
-      ].some((value) => matchesSearch(value, term));
-
-      return (
-        relationMatches ||
-        visibleIds.has(relationship.source_id) ||
-        visibleIds.has(relationship.target_id)
-      );
-    });
-
-    const relationHeading = createElement(
-      "h3",
-      "",
-      `Relações (${visibleRelationships.length})`
-    );
-
-    const relationsContainer = createElement("div", "graph-relations");
-
-    if (visibleRelationships.length === 0) {
-      relationsContainer.appendChild(
-        createMessage("Nenhuma relação encontrada.")
-      );
-    } else {
-      for (const relationship of visibleRelationships) {
-        const source = entitiesById.get(relationship.source_id);
-        const target = entitiesById.get(relationship.target_id);
-
-        const button = createElement("button", "graph-relation");
-        button.type = "button";
-
-        button.append(
-          createElement("span", "graph-relation-source", source.name),
-          createElement(
-            "span",
-            "graph-relation-label",
-            ` — ${relationship.label || relationship.relation_type || "Relação"} — `
-          ),
-          createElement("span", "graph-relation-target", target.name)
-        );
-
-        button.addEventListener("click", () => {
-          const entity = source;
-          state.selectedEntityId = entity.id;
-          renderGraph();
-          renderEntityDetails(entity);
-        });
-
-        const relationInfo = createElement(
-          "p",
-          "muted",
-          `${readableStatus(relationship.evidence_status)} · ${relationship.source_date || "Data não informada"}`
-        );
-
-        const wrapper = createElement("div", "graph-relation-item");
-        wrapper.append(button, relationInfo);
-
-        relationsContainer.appendChild(wrapper);
-      }
-    }
-
-    elements.graph.append(relationHeading, relationsContainer);
+    elements.graph.appendChild(nodesContainer);
   }
 
   function renderEmptyDetails() {
@@ -969,128 +839,47 @@
 
   function renderEntityDetails(entity) {
     if (!elements.graphDetails || !entity) return;
-
+    elements.graphDetails.hidden = false;
     elements.graphDetails.replaceChildren();
+    elements.graphDetails.appendChild(createElement("h3", "", entity.name || "Pessoa"));
 
-    const heading = createElement(
-      "h3",
-      "",
-      entity.name || "Entidade sem nome"
-    );
+    const sources = [];
+    const addSource = (url, title) => {
+      const cleanUrl = String(url || "").trim();
+      if (!/^https?:\/\//i.test(cleanUrl) || sources.some((item) => item.url === cleanUrl)) return;
+      sources.push({ url: cleanUrl, title: String(title || "").trim() || "Abrir fonte original" });
+    };
+    addSource(entity.source_url, entity.source_title || entity.source_name || "Fonte relacionada");
 
-    elements.graphDetails.appendChild(heading);
+    for (const relationship of state.relationships) {
+      if (relationship.source_id !== entity.id && relationship.target_id !== entity.id) continue;
+      addSource(relationship.source_url, relationship.source_title || relationship.source_name || relationship.label || "Fonte relacionada");
+    }
+    const matchingRecords = (state.publicSources || []).filter((source) => {
+      const summary = parseSourceSummary(source.summary || source.description || "");
+      return String(summary.people || "").toLocaleLowerCase("pt-BR")
+        .includes(String(entity.name || "").toLocaleLowerCase("pt-BR"));
+    });
+    for (const source of matchingRecords) {
+      addSource(source.url || source.original_url, source.title || "Fonte original");
+    }
 
-    addLabeledValue(
-      elements.graphDetails,
-      "Categoria",
-      readableType(entity.type)
-    );
-
-    addLabeledValue(
-      elements.graphDetails,
-      "Classificação",
-      readableStatus(entity.evidence_status)
-    );
-
-    addLabeledValue(
-      elements.graphDetails,
-      "Descrição",
-      entity.description
-    );
-
-    addLabeledValue(
-      elements.graphDetails,
-      "Data da fonte",
-      entity.source_date
-    );
-
-    if (entity.source_url) {
-      const sourceContainer = createElement("p");
-      sourceContainer.appendChild(
-        createElement("strong", "", "Fonte: ")
-      );
-
-      appendSourceLink(
-        sourceContainer,
-        entity.source_url,
-        "Abrir fonte"
-      );
-
-      if (sourceContainer.querySelector("a")) {
-        elements.graphDetails.appendChild(sourceContainer);
-      } else {
-        sourceContainer.appendChild(
-          document.createTextNode("URL inválida ou indisponível.")
-        );
-
-        elements.graphDetails.appendChild(sourceContainer);
+    const grid = createElement("div", "entity-source-grid");
+    if (!sources.length) {
+      grid.appendChild(createMessage("Ainda não há links de fontes associados a esta pessoa."));
+    } else {
+      for (const source of sources) {
+        const card = createElement("article", "entity-source-card");
+        const link = createElement("a", "entity-source-link", source.title);
+        link.href = source.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        card.appendChild(link);
+        card.appendChild(createElement("p", "entity-source-url", source.url));
+        grid.appendChild(card);
       }
     }
-
-    const related = state.relationships.filter(
-      (relationship) =>
-        relationship.source_id === entity.id ||
-        relationship.target_id === entity.id
-    );
-
-    elements.graphDetails.appendChild(
-      createElement("h4", "", `Relações associadas (${related.length})`)
-    );
-
-    if (related.length === 0) {
-      elements.graphDetails.appendChild(
-        createMessage("Esta entidade ainda não tem relações cadastradas.")
-      );
-      return;
-    }
-
-    const list = createElement("ul", "entity-relations");
-
-    for (const relationship of related) {
-      const source = state.entities.find(
-        (item) => item.id === relationship.source_id
-      );
-
-      const target = state.entities.find(
-        (item) => item.id === relationship.target_id
-      );
-
-      const item = createElement("li");
-
-      const relationDescription = [
-        source?.name || "Entidade desconhecida",
-        relationship.label || relationship.relation_type || "Relação",
-        target?.name || "Entidade desconhecida"
-      ].join(" — ");
-
-      item.appendChild(
-        createElement("strong", "", relationDescription)
-      );
-
-      item.appendChild(
-        createElement(
-          "p",
-          "",
-          relationship.description || "Sem descrição adicional."
-        )
-      );
-
-      item.appendChild(
-        createElement(
-          "p",
-          "muted",
-          `Classificação: ${readableStatus(relationship.evidence_status)}`
-        )
-      );
-
-      if (relationship.source_url) {
-        appendSourceLink(item, relationship.source_url);
-      }
-
-      list.appendChild(item);
-    }
-
-    elements.graphDetails.appendChild(list);
+    elements.graphDetails.appendChild(grid);
   }
 
   function applySearch() {
