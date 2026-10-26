@@ -16,3 +16,15 @@
 .mural-column-title{fill:#aabfff;font-size:10px;font-weight:700;letter-spacing:1px}
 .mural-graph-note{fill:#9ca5b4;font-size:10px}
 .mural-edge{stroke:#626c7c;stroke-width:1.2;opacity:.75}
+
+/* Diretório principal: nomes primeiro, sem mural de notícias ou grafo confuso. */
+.mural-layout{display:block}
+.mural-layout .mural-main{display:none}
+#mural-details{display:none}
+.mural-records{border-top:0;margin-top:.5rem;padding-top:.5rem}
+.mural-record-list{grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem}
+.person-directory-card{border:1px solid #303640;background:#11151b;padding:1rem;border-radius:5px}
+.person-directory-card h3{font-size:1.05rem;margin:.35rem 0 .65rem}
+.person-directory-card .button{width:100%;text-align:center}
+@media(max-width:900px){.mural-record-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.mural-record-list{grid-template-columns:1fr}}
