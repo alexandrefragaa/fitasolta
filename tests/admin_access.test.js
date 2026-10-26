@@ -47,6 +47,9 @@ test("stored source connections rebuild from both JSON and readable source summa
  assert.ok(server.includes('read("Instituições citadas")'));
  assert.ok(server.includes('read("Casos e processos")'));
  assert.ok(server.includes("format: \"summary-v1\""));
+ assert.ok(server.includes("SELECT source_url, COUNT(*) AS total FROM relationships WHERE source_url <>"));
+ assert.ok(server.includes("!hasRelationships && hasNamedEntities"));
+ assert.ok(server.includes("relationships: Number(linkedRows?.total || 0)"));
  assert.ok(server.includes("rebuildStoredSourceConnections(queue, 200)"));
 });
 test("video caption parsing and evidence grounding exist",()=>{
