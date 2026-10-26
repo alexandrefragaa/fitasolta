@@ -27,3 +27,20 @@
 
 /* Mural investigativo: registros em grade, priorizando processos e investigações. */
 .entity-source-heading{margin:0 0 .45rem;font-size:.98rem;line-height:1.4;overflow-wrap:anywhere}.entity-source-meta{color:var(--muted);font-size:.8rem}.entity-source-summary{margin:.35rem 0 .65rem;white-space:pre-line;overflow-wrap:anywhere}
+
+/* Mural investigativo com conexões, retratos e cartões de contexto. */
+.mural-section{scroll-margin-top:1rem}
+.mural-canvas{position:relative;width:100%;min-height:340px;overflow:hidden;border:1px solid var(--border);background-color:#f0f0ec;background-image:radial-gradient(#d1d1ca .7px,transparent .7px);background-size:18px 18px}
+.mural-canvas>svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.mural-edge{stroke:#777;stroke-width:2;opacity:.8}
+.mural-person-node{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:.25rem;width:clamp(104px,14vw,150px);min-height:112px;padding:.55rem .45rem;border:1px solid #bdbdb8;border-radius:4px;background:#fff;color:var(--text);box-shadow:0 2px 8px #00000012;text-align:center;z-index:1}
+.mural-person-node:hover,.mural-person-node[aria-pressed="true"]{border:2px solid var(--accent);background:#fff;z-index:2}
+.mural-person-photo,.mural-person-initials{display:flex;width:52px;height:52px;flex:0 0 52px;align-items:center;justify-content:center;border-radius:50%;object-fit:cover;background:#e4e3dd;color:#343434;font-weight:800}
+.mural-person-name{max-width:100%;font-size:.8rem;line-height:1.25;font-weight:800;overflow-wrap:anywhere}
+.mural-person-type{color:var(--muted);font-size:.68rem}
+.mural-relationship-list{margin-top:1rem;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:.65rem}
+.mural-relationship-list>h3{grid-column:1/-1;margin-bottom:0}
+.mural-relationship-card{min-width:0;padding:.8rem;border:1px solid var(--border);background:#fff;overflow-wrap:anywhere}
+.mural-relationship-title{font-weight:800;margin:0 0 .25rem}
+.entity-detail-photo{display:block;width:96px;height:96px;object-fit:cover;border-radius:50%;margin:0 0 .75rem;border:1px solid var(--border)}
+@media(max-width:600px){.mural-canvas{overflow-x:auto;min-height:340px}.mural-canvas>svg{min-width:650px}.mural-person-node{width:100px;min-height:100px}.mural-person-photo,.mural-person-initials{width:42px;height:42px;flex-basis:42px}.mural-person-name{font-size:.72rem}}
