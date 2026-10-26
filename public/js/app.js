@@ -1416,40 +1416,39 @@
     elements.graphDetails.hidden = false;
     elements.graphDetails.replaceChildren();
     elements.graphDetails.appendChild(createElement("h3", "", entity.name || "Pessoa"));
+    elements.graphDetails.appendChild(createElement("p", "section-description", "Registros, processos e investigações relacionados, conforme as fontes disponíveis. Uma investigação não significa culpa ou condenação."));
 
-    const sources = [];
-    const addSource = (url, title) => {
-      const cleanUrl = String(url || "").trim();
-      if (!/^https?:\/\//i.test(cleanUrl) || sources.some((item) => item.url === cleanUrl)) return;
-      sources.push({ url: cleanUrl, title: String(title || "").trim() || "Abrir fonte original" });
-    };
-    addSource(entity.source_url, entity.source_title || entity.source_name || "Fonte relacionada");
-
-    for (const relationship of state.relationships) {
-      if (relationship.source_id !== entity.id && relationship.target_id !== entity.id) continue;
-      addSource(relationship.source_url, relationship.source_title || relationship.source_name || relationship.label || "Fonte relacionada");
-    }
+    const personName = String(entity.name || "").trim().toLocaleLowerCase("pt-BR");
     const matchingRecords = (state.publicSources || []).filter((source) => {
-      const summary = parseSourceSummary(source.summary || source.description || "");
-      return String(summary.people || "").toLocaleLowerCase("pt-BR")
-        .includes(String(entity.name || "").toLocaleLowerCase("pt-BR"));
+      const details = parseSourceSummary(source.summary || source.description || "");
+      return personName && String(details.people || "").toLocaleLowerCase("pt-BR").includes(personName);
     });
-    for (const source of matchingRecords) {
-      addSource(source.url || source.original_url, source.title || "Fonte original");
-    }
-
+    const seen = new Set();
+    const records = matchingRecords.filter((source) => {
+      const url = String(source.url || source.original_url || "").trim();
+      const key = url || String(source.id || source.title || "");
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
     const grid = createElement("div", "entity-source-grid");
-    if (!sources.length) {
-      grid.appendChild(createMessage("Ainda não há links de fontes associados a esta pessoa."));
+    if (!records.length) {
+      grid.appendChild(createMessage("Ainda não há fontes publicadas vinculadas a esta pessoa."));
     } else {
-      for (const source of sources) {
+      for (const source of records) {
+        const details = parseSourceSummary(source.summary || source.description || "");
         const card = createElement("article", "entity-source-card");
-        const link = createElement("a", "entity-source-link", source.title);
-        link.href = source.url;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        card.appendChild(link);
-        card.appendChild(createElement("p", "entity-source-url", source.url));
+        card.appendChild(createElement("h4", "entity-source-heading", details.cases || details.legalStatus || source.title || "Registro relacionado"));
+        if (details.eventDate) card.appendChild(createElement("p", "entity-source-meta", "Data mencionada: " + details.eventDate));
+        if (details.summary) card.appendChild(createElement("p", "entity-source-summary", details.summary));
+        const url = source.url || source.original_url || "";
+        if (/^https?:\/\//i.test(String(url))) {
+          const link = createElement("a", "entity-source-link", "Consultar fonte original");
+          link.href = url;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          card.appendChild(link);
+        }
         grid.appendChild(card);
       }
     }
