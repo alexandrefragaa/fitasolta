@@ -1405,48 +1405,31 @@
 
   function renderEntityDetails(entity) {
     if (!elements.graphDetails || !entity) return;
-    elements.graphDetails.hidden = false;
-    elements.graphDetails.replaceChildren();
-    elements.graphDetails.appendChild(createElement("h3", "", entity.name || "Pessoa"));
-    elements.graphDetails.appendChild(createElement("p", "section-description", "Registros, processos e investigações relacionados, conforme as fontes disponíveis. Uma investigação não significa culpa ou condenação."));
-
-    const personName = String(entity.name || "").trim().toLocaleLowerCase("pt-BR");
-    const matchingRecords = (state.publicSources || []).filter((source) => {
-      const details = parseSourceSummary(source.summary || source.description || "");
-      return personName && String(details.people || "").toLocaleLowerCase("pt-BR").includes(personName);
-    });
-    const seen = new Set();
-    const records = matchingRecords.filter((source) => {
-      const url = String(source.url || source.original_url || "").trim();
-      const key = url || String(source.id || source.title || "");
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    const grid = createElement("div", "entity-source-grid");
-    if (!records.length) {
-      grid.appendChild(createMessage("Ainda não há fontes publicadas vinculadas a esta pessoa."));
-    } else {
-      for (const source of records) {
-        const details = parseSourceSummary(source.summary || source.description || "");
-        const card = createElement("article", "entity-source-card");
-        card.appendChild(createElement("h4", "entity-source-heading", details.cases || details.legalStatus || source.title || "Registro relacionado"));
-        if (details.eventDate) card.appendChild(createElement("p", "entity-source-meta", "Data mencionada: " + details.eventDate));
-        if (details.summary) card.appendChild(createElement("p", "entity-source-summary", details.summary));
-        const url = source.url || source.original_url || "";
-        if (/^https?:\/\//i.test(String(url))) {
-          const link = createElement("a", "entity-source-link", "Consultar fonte original");
-          link.href = url;
-          link.target = "_blank";
-          link.rel = "noopener noreferrer";
-          card.appendChild(link);
-        }
-        grid.appendChild(card);
-      }
+    elements.graphDetails.hidden = false; elements.graphDetails.replaceChildren();
+    const photo = safeHttpUrl(entity.photo_url || entity.image_url || '');
+    if (photo) { const img = createElement('img', 'entity-detail-photo'); img.src = photo; img.alt = 'Imagem associada a ' + (entity.name || 'esta ficha'); img.loading = 'lazy'; img.addEventListener('error', () => img.remove(), { once: true }); elements.graphDetails.appendChild(img); }
+    elements.graphDetails.appendChild(createElement('h3', '', entity.name || 'Registro'));
+    elements.graphDetails.appendChild(createElement('p', 'entity-source-meta', readableType(entity.type) + ' · ' + (entity.evidence_status || 'Estado não informado') + (entity.source_date ? ' · Data: ' + entity.source_date : '')));
+    if (entity.description) elements.graphDetails.appendChild(createElement('p', 'entity-source-summary', entity.description));
+    if (safeHttpUrl(entity.source_url)) appendSourceLink(elements.graphDetails, entity.source_url, 'Fonte principal da ficha');
+    elements.graphDetails.appendChild(createElement('p', 'section-description', 'Alegações, acusações ou investigações não equivalem a culpa comprovada. Confira as fontes e o contexto.'));
+    const connected = state.relationships.filter((r) => r.source_id === entity.id || r.target_id === entity.id);
+    if (connected.length) {
+      elements.graphDetails.appendChild(createElement('h4', '', 'Conexões e acontecimentos'));
+      const connections = createElement('div', 'entity-source-grid');
+      for (const r of connected) { const otherId = r.source_id === entity.id ? r.target_id : r.source_id; const other = state.entities.find((e) => e.id === otherId); const card = createElement('article', 'entity-source-card'); card.appendChild(createElement('h4', 'entity-source-heading', (r.label || r.relation_type || 'Relação') + ' · ' + (other?.name || 'Registro relacionado'))); if (r.description) card.appendChild(createElement('p', 'entity-source-summary', r.description)); card.appendChild(createElement('p', 'entity-source-meta', (r.evidence_status || 'Estado não informado') + (r.source_date ? ' · ' + r.source_date : ''))); if (safeHttpUrl(r.source_url)) appendSourceLink(card, r.source_url, 'Fonte da relação'); connections.appendChild(card); }
+      elements.graphDetails.appendChild(connections);
     }
+    const personName = String(entity.name || '').trim().toLocaleLowerCase('pt-BR');
+    const matchingRecords = (state.publicSources || []).filter((source) => { const details = parseSourceSummary(source.summary || source.description || ''); const people = String(details.people || '').toLocaleLowerCase('pt-BR'); const haystack = (String(source.title || '') + ' ' + String(source.summary || source.description || '')).toLocaleLowerCase('pt-BR'); return personName && (people.includes(personName) || haystack.includes(personName)); });
+    const seen = new Set();
+    const records = matchingRecords.filter((source) => { const url = String(source.url || source.original_url || '').trim(); const key = url || String(source.id || source.title || ''); if (!key || seen.has(key)) return false; seen.add(key); return true; });
+    elements.graphDetails.appendChild(createElement('h4', '', 'Casos, notícias, acusações e registros relacionados'));
+    const grid = createElement('div', 'entity-source-grid');
+    if (!records.length) grid.appendChild(createMessage('Ainda não há fontes públicas vinculadas a esta ficha. Confira a fonte principal e as ligações cadastradas.'));
+    else for (const source of records) { const details = parseSourceSummary(source.summary || source.description || ''); const card = createElement('article', 'entity-source-card'); card.appendChild(createElement('h4', 'entity-source-heading', details.cases || details.legalStatus || source.title || 'Registro relacionado')); if (details.eventDate) card.appendChild(createElement('p', 'entity-source-meta', 'Data mencionada: ' + details.eventDate)); if (details.summary) card.appendChild(createElement('p', 'entity-source-summary', details.summary)); const status = details.verdict || details.status || source.status || source.evidence_status; if (status) card.appendChild(createElement('p', 'entity-source-meta', 'Classificação: ' + status)); const url = source.url || source.original_url || ''; if (safeHttpUrl(url)) appendSourceLink(card, url, 'Consultar fonte original'); grid.appendChild(card); }
     elements.graphDetails.appendChild(grid);
   }
-
   function applySearch() {
     renderGraph();
 
